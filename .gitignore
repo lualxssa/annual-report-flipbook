@@ -1,0 +1,13 @@
+# Test / content PDFs — the plugin ships no PDFs; drop your own in to test.
+*.pdf
+
+# One-time library vendoring scratch (see SETUP.md) and any npm output.
+.tmp/
+node_modules/
+package-lock.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+*.log

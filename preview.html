@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<!--
+  Standalone preview of the Annual Report Flipbook viewer — no WordPress required.
+  Not part of the plugin itself; for local dev/design checks only. Safe to delete.
+
+  Usage:
+    1. Open this file directly in a browser (double-click, or via a local server).
+    2. By default it loads ./sample.pdf — drop any PDF next to this file with
+       that name, or pass ?pdf=path/or/url/to/file.pdf in the address bar.
+
+  Note: opening via file:// works for the PDF fetch in most browsers, but if
+  PDF.js's worker or fonts misbehave under file://, serve this folder with a
+  quick local server instead, e.g.:
+    npx serve .
+  or
+    php -S localhost:8000
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Annual Report Flipbook Preview</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="assets/css/flipbook.css">
+<style>
+	body {
+		font-family: system-ui, sans-serif;
+		max-width: 960px;
+		margin: 24px auto;
+		padding: 0 16px;
+		/* StPageFlip briefly draws the lifted page past the edge mid-flip; keep
+		   that from triggering a horizontal scrollbar on the preview page. */
+		overflow-x: hidden;
+	}
+	h1 {
+		font-size: 1.25rem;
+	}
+	.arfb-notice {
+		background: #fff8e5;
+		border: 1px solid #e0c36b;
+		padding: 12px 16px;
+		border-radius: 4px;
+	}
+</style>
+</head>
+<body>
+
+<h1>Annual Report Flipbook</h1>
+<p id="preview-info"></p>
+
+<div class="arfb-flipbook-container">
+	<div id="arfb-preview" class="arfb-flipbook" data-pdf-url="" data-title="Annual report preview"></div>
+</div>
+
+<script src="assets/vendor/pdfjs/pdf.min.js"></script>
+<script src="assets/vendor/pageflip/page-flip.browser.js"></script>
+<script>
+	// Stand-in for what wp_localize_script() would normally provide.
+	window.arfbConfig = {
+		pdfWorkerSrc: 'assets/vendor/pdfjs/pdf.worker.min.js',
+		i18n: {}
+	};
+
+	var params = new URLSearchParams( window.location.search );
+	var pdfPath = params.get( 'pdf' ) || 'scj-report.pdf';
+
+	document.getElementById( 'arfb-preview' ).setAttribute( 'data-pdf-url', pdfPath );
+	document.getElementById( 'preview-info' ).textContent =
+		'Loading: ' + pdfPath + ' (pass ?pdf=yourfile.pdf to preview a different one)';
+</script>
+<script src="assets/js/flipbook.js"></script>
+
+</body>
+</html>

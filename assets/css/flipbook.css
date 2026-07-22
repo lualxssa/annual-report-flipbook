@@ -1,0 +1,250 @@
+/* Annual Report Flipbook — shared styles for the frontend viewer and the
+   admin drag-and-drop / preview screen. Written to inherit the host theme's
+   fonts/colors rather than impose its own, and to keep contrast/touch-target
+   sizes accessible by default. */
+
+.arfb-visually-hidden {
+	position: absolute !important;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+/* --- Admin dropzone -------------------------------------------------- */
+
+.arfb-dropzone {
+	border: 2px dashed #8c8f94;
+	border-radius: 6px;
+	padding: 48px 24px;
+	text-align: center;
+	cursor: pointer;
+	background: #fff;
+	margin: 16px 0;
+}
+
+.arfb-dropzone:focus-visible,
+.arfb-dropzone--active {
+	border-color: #2271b1;
+	background: #f0f6fc;
+	outline: 2px solid #2271b1;
+	outline-offset: 2px;
+}
+
+.arfb-dropzone__text {
+	font-size: 1.1em;
+	margin: 0;
+}
+
+.arfb-upload-status {
+	min-height: 1.5em;
+	font-weight: 600;
+}
+
+/* --- Flipbook viewer --------------------------------------------------- */
+
+.arfb-flipbook-container {
+	max-width: 100%;
+	margin: 0 auto;
+	/* Contain the transient page-lift/shadow StPageFlip draws mid-flip so it
+	   doesn't briefly grow the document and pop a scrollbar in (which makes the
+	   layout jump on each flip). Applied to this outer wrapper — the spread
+	   itself sits well inside it, so only the transient overflow is clipped,
+	   not the pages. */
+	overflow: hidden;
+}
+
+.arfb-flipbook {
+	position: relative;
+	width: 100%;
+	max-width: 900px;
+	margin: 0 auto;
+	/* Theming hooks — override these in your theme to recolor the controls. */
+	--arfb-accent: #2563eb;
+	--arfb-accent-hover: #1d4ed8;
+	--arfb-btn-bg: #eef0f2;
+	--arfb-btn-bg-hover: #e1e5e9;
+	--arfb-btn-fg: #1f2933;
+	--arfb-btn-border: rgba(0, 0, 0, 0.14);
+	--arfb-btn-radius: 9px;
+}
+
+.arfb-flipbook--loading .arfb-flipbook__status,
+.arfb-flipbook--error .arfb-flipbook__status {
+	text-align: center;
+	padding: 3em 1em;
+}
+
+.arfb-flipbook__toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	margin-bottom: 16px;
+}
+
+.arfb-btn {
+	min-height: 44px; /* touch target */
+	padding: 0 18px;
+	font-size: 0.95em;
+	font-weight: 600;
+	line-height: 1;
+	color: var(--arfb-btn-fg);
+	border: 1px solid var(--arfb-btn-border);
+	border-radius: var(--arfb-btn-radius);
+	background: var(--arfb-btn-bg);
+	cursor: pointer;
+	text-decoration: none;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+	transition: background-color 0.15s ease, border-color 0.15s ease,
+		box-shadow 0.15s ease, transform 0.15s ease;
+}
+
+.arfb-btn:hover {
+	background: var(--arfb-btn-bg-hover);
+	transform: translateY(-1px);
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.12);
+}
+
+.arfb-btn:active {
+	transform: translateY(0);
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.arfb-btn:focus-visible {
+	outline: 2px solid var(--arfb-accent);
+	outline-offset: 2px;
+}
+
+/* Primary page-turn controls. */
+.arfb-btn--prev,
+.arfb-btn--next {
+	background: var(--arfb-accent);
+	border-color: var(--arfb-accent);
+	color: #fff;
+}
+
+.arfb-btn--prev:hover,
+.arfb-btn--next:hover {
+	background: var(--arfb-accent-hover);
+	border-color: var(--arfb-accent-hover);
+}
+
+.arfb-flipbook__page-indicator {
+	min-width: 8em;
+	padding: 0 4px;
+	text-align: center;
+	font-weight: 600;
+	font-variant-numeric: tabular-nums;
+	opacity: 0.85;
+}
+
+.arfb-flipbook__toc {
+	margin: 0 0 12px;
+}
+
+.arfb-flipbook__toc summary {
+	cursor: pointer;
+	font-weight: 600;
+	padding: 8px;
+}
+
+.arfb-flipbook__toc ul {
+	max-height: 240px;
+	overflow-y: auto;
+	margin: 0;
+	padding-left: 1.5em;
+}
+
+.arfb-flipbook__pages {
+	width: 100%;
+	aspect-ratio: 4 / 3;
+}
+
+/* --- Fullscreen ------------------------------------------------------- */
+
+/* When the viewer element itself is the fullscreen element, let it fill the
+   screen (dropping the 900px cap), stack its chrome above the pages, and
+   center the spread in the space that's left so the bottom isn't cut off.
+   The pages' width is capped from JS (see _onFullscreenChange) so the derived
+   spread height fits the viewport. */
+.arfb-flipbook:fullscreen {
+	max-width: none;
+	width: 100%;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	padding: 16px;
+	background: #1a1a1a;
+	color: #fff;
+}
+
+.arfb-flipbook:fullscreen .arfb-flipbook__pages {
+	flex: 1 1 auto;
+	min-height: 0;
+	aspect-ratio: auto;
+	align-self: center;
+}
+
+/* On the dark fullscreen backdrop, give the neutral buttons a translucent
+   "glass" look so they read clearly against it. Safe to hard-code light values
+   here because this backdrop is always dark. */
+.arfb-flipbook:fullscreen .arfb-btn {
+	--arfb-btn-bg: rgba(255, 255, 255, 0.14);
+	--arfb-btn-bg-hover: rgba(255, 255, 255, 0.24);
+	--arfb-btn-fg: #fff;
+	--arfb-btn-border: rgba(255, 255, 255, 0.35);
+}
+
+.arfb-page {
+	position: relative;
+	background: #fff;
+	overflow: hidden;
+}
+
+.arfb-page canvas {
+	width: 100%;
+	height: 100%;
+	display: block;
+}
+
+.arfb-page__text-layer {
+	position: absolute;
+	top: 0;
+	left: 0;
+	line-height: 1;
+	opacity: 0.2; /* text stays selectable/screen-reader-visible without visibly double-printing over the canvas */
+	transform-origin: 0 0;
+}
+
+.arfb-page__text-layer span {
+	position: absolute;
+	white-space: pre;
+	color: transparent;
+}
+
+/* Respect reduced-motion preferences: StPageFlip's own animation duration is
+   already shortened to ~0ms via JS (see flipbook.js), this just prevents any
+   CSS-driven transitions from adding motion back in. */
+@media (prefers-reduced-motion: reduce) {
+	.arfb-flipbook * {
+		transition-duration: 0.001ms !important;
+		animation-duration: 0.001ms !important;
+	}
+}
+
+@media (max-width: 600px) {
+	.arfb-btn {
+		padding: 8px 10px;
+		font-size: 0.85em;
+	}
+}
