@@ -65,11 +65,58 @@ function arfb_enqueue_viewer_assets() {
 }
 
 /**
+ * Sanitize a user-supplied width into a safe CSS length, or '' if invalid.
+ * Accepts a bare number (treated as px) or a value with a px/%/rem/em/vw unit.
+ *
+ * @param string|int $value Raw width value.
+ * @return string Safe CSS length (e.g. "600px", "100%") or '' to fall back to the default.
+ */
+function arfb_sanitize_css_width( $value ) {
+	$value = trim( (string) $value );
+
+	if ( '' === $value ) {
+		return '';
+	}
+	if ( is_numeric( $value ) ) {
+		return absint( $value ) . 'px';
+	}
+	if ( preg_match( '/^\d+(\.\d+)?(px|%|rem|em|vw)$/', $value ) ) {
+		return $value;
+	}
+
+	return '';
+}
+
+/**
+ * Map a size preset (or a custom value) to a CSS max-width.
+ *
+ * @param string $size   One of small|medium|large|full|custom.
+ * @param string $custom Custom width, used only when $size is "custom".
+ * @return string CSS length/percent, or '' to use the stylesheet default.
+ */
+function arfb_resolve_width( $size, $custom = '' ) {
+	switch ( $size ) {
+		case 'small':
+			return '600px';
+		case 'medium':
+			return '900px';
+		case 'large':
+			return '1200px';
+		case 'full':
+			return '100%';
+		case 'custom':
+			return arfb_sanitize_css_width( $custom );
+	}
+	return '';
+}
+
+/**
  * Shared render used by both the shortcode and the dynamic block.
  *
  * @param array $atts {
  *     @type int    $id    Attachment ID of the PDF. Falls back to the saved default.
  *     @type string $title Accessible title for the viewer region.
+ *     @type string $width Optional max-width for the viewer (e.g. "1200px" or "100%").
  * }
  */
 function arfb_render_flipbook( $atts = array() ) {
@@ -77,6 +124,7 @@ function arfb_render_flipbook( $atts = array() ) {
 		array(
 			'id'    => (int) get_option( 'arfb_default_attachment_id', 0 ),
 			'title' => __( 'Annual report', 'annual-report-flipbook' ),
+			'width' => '',
 		),
 		$atts,
 		'annual_report_flipbook'
@@ -95,6 +143,8 @@ function arfb_render_flipbook( $atts = array() ) {
 
 	$pdf_url = wp_get_attachment_url( $attachment_id );
 	$uid     = 'arfb-' . $attachment_id . '-' . wp_unique_id();
+	$width   = arfb_sanitize_css_width( $atts['width'] );
+	$style   = $width ? ' style="max-width:' . esc_attr( $width ) . ';"' : '';
 
 	ob_start();
 	?>
@@ -104,6 +154,7 @@ function arfb_render_flipbook( $atts = array() ) {
 			class="arfb-flipbook"
 			data-pdf-url="<?php echo esc_url( $pdf_url ); ?>"
 			data-title="<?php echo esc_attr( $atts['title'] ); ?>"
+			<?php echo $style; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- value escaped above. ?>
 		></div>
 		<noscript>
 			<p>
@@ -145,6 +196,14 @@ function arfb_register_block() {
 					'type'    => 'string',
 					'default' => __( 'Annual report', 'annual-report-flipbook' ),
 				),
+				'size'         => array(
+					'type'    => 'string',
+					'default' => 'medium',
+				),
+				'customWidth'  => array(
+					'type'    => 'string',
+					'default' => '',
+				),
 			),
 		)
 	);
@@ -160,10 +219,14 @@ function arfb_render_block( $attributes ) {
 		? (int) $attributes['attachmentId']
 		: (int) get_option( 'arfb_default_attachment_id', 0 );
 
+	$size   = isset( $attributes['size'] ) ? $attributes['size'] : 'medium';
+	$custom = isset( $attributes['customWidth'] ) ? $attributes['customWidth'] : '';
+
 	return arfb_render_flipbook(
 		array(
 			'id'    => $attachment_id,
 			'title' => isset( $attributes['title'] ) ? $attributes['title'] : '',
+			'width' => arfb_resolve_width( $size, $custom ),
 		)
 	);
 }

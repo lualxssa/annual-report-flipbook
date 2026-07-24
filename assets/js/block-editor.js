@@ -14,7 +14,16 @@
 	var PanelBody = components.PanelBody;
 	var Button = components.Button;
 	var TextControl = components.TextControl;
+	var SelectControl = components.SelectControl;
 	var Placeholder = components.Placeholder;
+
+	var SIZE_OPTIONS = [
+		{ label: __( 'Small (600px)', 'annual-report-flipbook' ), value: 'small' },
+		{ label: __( 'Medium (900px)', 'annual-report-flipbook' ), value: 'medium' },
+		{ label: __( 'Large (1200px)', 'annual-report-flipbook' ), value: 'large' },
+		{ label: __( 'Full width', 'annual-report-flipbook' ), value: 'full' },
+		{ label: __( 'Custom…', 'annual-report-flipbook' ), value: 'custom' },
+	];
 
 	blocks.registerBlockType( 'annual-report-flipbook/viewer', {
 		title: __( 'Annual Report Flipbook', 'annual-report-flipbook' ),
@@ -24,6 +33,8 @@
 		attributes: {
 			attachmentId: { type: 'number', default: 0 },
 			title: { type: 'string', default: __( 'Annual report', 'annual-report-flipbook' ) },
+			size: { type: 'string', default: 'medium' },
+			customWidth: { type: 'string', default: '' },
 		},
 
 		edit: function ( props ) {
@@ -55,6 +66,26 @@
 				}
 			);
 
+			var sizeControl = el( SelectControl, {
+				label: __( 'Viewer size', 'annual-report-flipbook' ),
+				value: attributes.size,
+				options: SIZE_OPTIONS,
+				onChange: function ( value ) {
+					setAttributes( { size: value } );
+				},
+			} );
+
+			var customWidthControl = attributes.size === 'custom'
+				? el( TextControl, {
+					label: __( 'Custom width', 'annual-report-flipbook' ),
+					help: __( 'A CSS width, e.g. 800px or 100%.', 'annual-report-flipbook' ),
+					value: attributes.customWidth,
+					onChange: function ( value ) {
+						setAttributes( { customWidth: value } );
+					},
+				} )
+				: null;
+
 			var inspector = el(
 				InspectorControls,
 				{},
@@ -68,6 +99,8 @@
 							setAttributes( { title: value } );
 						},
 					} ),
+					sizeControl,
+					customWidthControl,
 					mediaButton
 				)
 			);

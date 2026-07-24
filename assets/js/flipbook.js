@@ -27,6 +27,13 @@
 	// on very high-resolution / 4K displays.
 	var MAX_RENDER_WIDTH = 2400;
 
+	// Build a small inline SVG icon from a single path, inheriting currentColor.
+	function arfbIcon( path ) {
+		return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+			'<path d="' + path + '" fill="none" stroke="currentColor" stroke-width="2" ' +
+			'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+	}
+
 	/**
 	 * One instance per .arfb-flipbook container.
 	 */
@@ -135,9 +142,17 @@
 		var viewport = firstPage.getViewport( { scale: 1 } );
 		var aspect = viewport.height / viewport.width;
 
+		// The stage wraps the page area and hosts the side arrows, so they can
+		// be positioned against the book's edges without becoming children of
+		// the StPageFlip-managed pages element.
+		var stage = document.createElement( 'div' );
+		stage.className = 'arfb-flipbook__stage';
+		this.container.appendChild( stage );
+		this.stage = stage;
+
 		var viewerEl = document.createElement( 'div' );
 		viewerEl.className = 'arfb-flipbook__pages';
-		this.container.appendChild( viewerEl );
+		stage.appendChild( viewerEl );
 		this.viewerEl = viewerEl;
 
 		for ( var i = 1; i <= this.pdfDoc.numPages; i++ ) {
@@ -149,7 +164,37 @@
 			self.pageEls.push( pageEl );
 		}
 
+		this._buildNavArrows();
 		this._buildToolbar();
+	};
+
+	/**
+	 * Previous / next page-turn controls, as arrow buttons overlaid on the
+	 * left and right edges of the book.
+	 */
+	FlipbookInstance.prototype._buildNavArrows = function () {
+		var self = this;
+
+		function arrow( className, label, path, onClick ) {
+			var b = document.createElement( 'button' );
+			b.type = 'button';
+			b.className = 'arfb-nav ' + className;
+			b.setAttribute( 'aria-label', label );
+			b.title = label;
+			b.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+				'<path d="' + path + '" fill="none" stroke="currentColor" stroke-width="2.2" ' +
+				'stroke-linecap="round" stroke-linejoin="round"/></svg>';
+			b.addEventListener( 'click', onClick );
+			self.stage.appendChild( b );
+			return b;
+		}
+
+		arrow( 'arfb-nav--prev', t.previous || 'Previous page', 'M15 4 7 12l8 8', function () {
+			self.pageFlip && self.pageFlip.flipPrev();
+		} );
+		arrow( 'arfb-nav--next', t.next || 'Next page', 'M9 4l8 8-8 8', function () {
+			self.pageFlip && self.pageFlip.flipNext();
+		} );
 	};
 
 	FlipbookInstance.prototype._buildToolbar = function () {
@@ -157,45 +202,46 @@
 		var toolbar = document.createElement( 'div' );
 		toolbar.className = 'arfb-flipbook__toolbar';
 
-		function button( label, className, onClick ) {
+		function iconButton( className, label, path, onClick ) {
 			var b = document.createElement( 'button' );
 			b.type = 'button';
 			b.className = 'arfb-btn ' + className;
-			b.textContent = label;
+			b.setAttribute( 'aria-label', label );
+			b.title = label;
+			b.innerHTML = arfbIcon( path );
 			b.addEventListener( 'click', onClick );
 			toolbar.appendChild( b );
 			return b;
 		}
-
-		button( '‹ ' + ( t.previous || 'Previous' ), 'arfb-btn--prev', function () {
-			self.pageFlip && self.pageFlip.flipPrev();
-		} );
 
 		var pageIndicator = document.createElement( 'span' );
 		pageIndicator.className = 'arfb-flipbook__page-indicator';
 		toolbar.appendChild( pageIndicator );
 		this.pageIndicator = pageIndicator;
 
-		button( ( t.next || 'Next' ) + ' ›', 'arfb-btn--next', function () {
-			self.pageFlip && self.pageFlip.flipNext();
-		} );
-
-		button( t.fullscreen || 'Fullscreen', 'arfb-btn--fullscreen', function () {
-			if ( document.fullscreenElement ) {
-				document.exitFullscreen();
-			} else if ( self.container.requestFullscreen ) {
-				self.container.requestFullscreen();
+		iconButton(
+			'arfb-btn--fullscreen',
+			t.fullscreen || 'Toggle fullscreen',
+			'M4 9V4h5 M20 9V4h-5 M4 15v5h5 M20 15v5h-5',
+			function () {
+				if ( document.fullscreenElement ) {
+					document.exitFullscreen();
+				} else if ( self.container.requestFullscreen ) {
+					self.container.requestFullscreen();
+				}
 			}
-		} );
+		);
 
 		var download = document.createElement( 'a' );
 		download.className = 'arfb-btn arfb-btn--download';
 		download.href = this.pdfUrl;
-		download.textContent = t.download || 'Download PDF';
 		download.setAttribute( 'download', '' );
+		download.setAttribute( 'aria-label', t.download || 'Download PDF' );
+		download.title = t.download || 'Download PDF';
+		download.innerHTML = arfbIcon( 'M12 3v11 M8 11l4 4 4-4 M5 20h14' );
 		toolbar.appendChild( download );
 
-		this.container.insertBefore( toolbar, this.viewerEl );
+		this.container.insertBefore( toolbar, this.stage );
 	};
 
 	FlipbookInstance.prototype._loadOutline = function () {
@@ -236,7 +282,7 @@
 		} );
 		toc.appendChild( list );
 
-		this.container.insertBefore( toc, this.viewerEl );
+		this.container.insertBefore( toc, this.stage );
 	};
 
 	FlipbookInstance.prototype._initPageFlip = function () {
@@ -282,7 +328,49 @@
 			self._onFullscreenChange();
 		} );
 
+		this._bindWheelFlip();
+
 		this._onPageChange( 0 );
+	};
+
+	/**
+	 * Flip pages with the mouse wheel / trackpad while pointing at the book.
+	 * Scroll down / right → next, up / left → previous. A short cooldown keeps
+	 * one gesture from flipping several pages at once.
+	 */
+	FlipbookInstance.prototype._bindWheelFlip = function () {
+		var self = this;
+		var lastFlip = 0;
+		var COOLDOWN = 450; // ms between wheel-driven flips
+
+		this.stage.addEventListener(
+			'wheel',
+			function ( e ) {
+				if ( ! self.pageFlip ) {
+					return;
+				}
+				// Use whichever axis moved more (covers horizontal trackpads).
+				var delta = Math.abs( e.deltaY ) >= Math.abs( e.deltaX ) ? e.deltaY : e.deltaX;
+				if ( Math.abs( delta ) < 4 ) {
+					return;
+				}
+				// Take over scrolling within the book so the gesture turns pages.
+				e.preventDefault();
+
+				var now = Date.now();
+				if ( now - lastFlip < COOLDOWN ) {
+					return;
+				}
+				lastFlip = now;
+
+				if ( delta > 0 ) {
+					self.pageFlip.flipNext();
+				} else {
+					self.pageFlip.flipPrev();
+				}
+			},
+			{ passive: false }
+		);
 	};
 
 	/**
@@ -296,16 +384,16 @@
 
 		if ( isFullscreen ) {
 			// Space above the pages (toolbar, TOC, etc.) plus a little breathing room.
-			var chromeHeight = this.viewerEl.offsetTop;
+			var chromeHeight = this.stage.offsetTop;
 			var availableHeight = this.container.clientHeight - chromeHeight - 24;
 			var maxWidth = availableHeight / this.spreadHeightRatio;
-			this.viewerEl.style.maxWidth = Math.floor( maxWidth ) + 'px';
-			this.viewerEl.style.marginLeft = 'auto';
-			this.viewerEl.style.marginRight = 'auto';
+			this.stage.style.maxWidth = Math.floor( maxWidth ) + 'px';
+			this.stage.style.marginLeft = 'auto';
+			this.stage.style.marginRight = 'auto';
 		} else {
-			this.viewerEl.style.maxWidth = '';
-			this.viewerEl.style.marginLeft = '';
-			this.viewerEl.style.marginRight = '';
+			this.stage.style.maxWidth = '';
+			this.stage.style.marginLeft = '';
+			this.stage.style.marginRight = '';
 		}
 
 		// Let StPageFlip recompute its geometry against the new container size.
