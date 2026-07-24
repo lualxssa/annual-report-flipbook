@@ -11,3 +11,6 @@ package-lock.json
 Thumbs.db
 .vscode/
 *.log
+
+# Packaged plugin artifacts
+flipbook-plugin.zip

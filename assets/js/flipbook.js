@@ -27,6 +27,11 @@
 	// on very high-resolution / 4K displays.
 	var MAX_RENDER_WIDTH = 2400;
 
+	// Higher cap used when a page is zoomed in, so its canvas is re-rendered
+	// with enough real pixels to stay sharp at magnification (memory for these
+	// larger canvases is reclaimed when the zoom is reset).
+	var MAX_RENDER_WIDTH_ZOOM = 3000;
+
 	// Build a small inline SVG icon from a single path, inheriting currentColor.
 	function arfbIcon( path ) {
 		return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
@@ -45,6 +50,8 @@
 		this.pageFlip = null;
 		this.pageEls = [];
 		this.renderedPages = {};
+		this.renderedWidth = {}; // device-px width each page was last rendered at
+		this.zoomedPages = {}; // pages currently rendered at zoom resolution
 		this.reducedMotion = window.matchMedia && window.matchMedia( '(prefers-reduced-motion: reduce)' ).matches;
 
 		this._buildChrome();
@@ -328,20 +335,26 @@
 			self._onFullscreenChange();
 		} );
 
-		this._bindWheelFlip();
+		this.zoomState = { scale: 1, tx: 0, ty: 0, dragging: false };
+		this._bindWheelAndZoom();
 
 		this._onPageChange( 0 );
 	};
 
 	/**
-	 * Flip pages with the mouse wheel / trackpad while pointing at the book.
-	 * Scroll down / right → next, up / left → previous. A short cooldown keeps
-	 * one gesture from flipping several pages at once.
+	 * Mouse-wheel / trackpad behaviour over the book:
+	 *   - plain scroll  → flip pages (down/right = next, up/left = prev)
+	 *   - Ctrl/Cmd+scroll or a trackpad pinch (reported as a ctrl-wheel event)
+	 *     → zoom in/out, anchored at the pointer
+	 * When zoomed in, drag to pan; turning the page or double-clicking resets
+	 * the zoom. Zooming scales the already high-resolution canvas, so pages
+	 * stay crisp.
 	 */
-	FlipbookInstance.prototype._bindWheelFlip = function () {
+	FlipbookInstance.prototype._bindWheelAndZoom = function () {
 		var self = this;
 		var lastFlip = 0;
 		var COOLDOWN = 450; // ms between wheel-driven flips
+		var MAX_ZOOM = 4;
 
 		this.stage.addEventListener(
 			'wheel',
@@ -349,12 +362,34 @@
 				if ( ! self.pageFlip ) {
 					return;
 				}
+
+				// --- Zoom gesture: Ctrl/Cmd + wheel, or trackpad pinch ---
+				if ( e.ctrlKey || e.metaKey ) {
+					e.preventDefault();
+
+					var z = self.zoomState;
+					var rect = self.viewerEl.getBoundingClientRect();
+					var px = ( e.clientX - rect.left ) / z.scale; // content point under pointer
+					var py = ( e.clientY - rect.top ) / z.scale;
+
+					var factor = Math.exp( -e.deltaY * 0.0015 );
+					var newScale = Math.min( MAX_ZOOM, Math.max( 1, z.scale * factor ) );
+
+					// Keep that content point under the pointer after scaling.
+					z.tx += ( e.clientX - px * newScale ) - rect.left;
+					z.ty += ( e.clientY - py * newScale ) - rect.top;
+					z.scale = newScale;
+					self._applyZoom();
+					self._scheduleZoomRerender();
+					return;
+				}
+
+				// --- Plain scroll: flip pages ---
 				// Use whichever axis moved more (covers horizontal trackpads).
 				var delta = Math.abs( e.deltaY ) >= Math.abs( e.deltaX ) ? e.deltaY : e.deltaX;
 				if ( Math.abs( delta ) < 4 ) {
 					return;
 				}
-				// Take over scrolling within the book so the gesture turns pages.
 				e.preventDefault();
 
 				var now = Date.now();
@@ -371,6 +406,128 @@
 			},
 			{ passive: false }
 		);
+
+		// Drag to pan while zoomed in. Capture-phase mousedown + stopPropagation
+		// keeps StPageFlip (mouse-driven) from treating the drag as a page turn;
+		// at scale 1 we don't interfere, so normal flipping/dragging still works.
+		this.viewerEl.addEventListener(
+			'mousedown',
+			function ( e ) {
+				var z = self.zoomState;
+				if ( z.scale <= 1 ) {
+					return;
+				}
+				e.preventDefault();
+				e.stopPropagation();
+				z.dragging = true;
+				z.startX = e.clientX;
+				z.startY = e.clientY;
+				z.baseTx = z.tx;
+				z.baseTy = z.ty;
+				self.viewerEl.classList.add( 'arfb-flipbook__pages--grabbing' );
+			},
+			true
+		);
+
+		window.addEventListener( 'mousemove', function ( e ) {
+			var z = self.zoomState;
+			if ( ! z.dragging ) {
+				return;
+			}
+			z.tx = z.baseTx + ( e.clientX - z.startX );
+			z.ty = z.baseTy + ( e.clientY - z.startY );
+			self._applyZoom();
+		} );
+
+		window.addEventListener( 'mouseup', function () {
+			if ( self.zoomState.dragging ) {
+				self.zoomState.dragging = false;
+				self.viewerEl.classList.remove( 'arfb-flipbook__pages--grabbing' );
+			}
+		} );
+
+		// Double-click snaps back to fit.
+		this.viewerEl.addEventListener( 'dblclick', function ( e ) {
+			if ( self.zoomState.scale > 1 ) {
+				e.preventDefault();
+				self._resetZoom();
+			}
+		} );
+	};
+
+	FlipbookInstance.prototype._applyZoom = function () {
+		var z = this.zoomState;
+		var zoomed = z.scale > 1;
+		this.viewerEl.style.transformOrigin = '0 0';
+		this.viewerEl.style.transform = zoomed
+			? 'translate(' + z.tx + 'px,' + z.ty + 'px) scale(' + z.scale + ')'
+			: '';
+		this.viewerEl.classList.toggle( 'arfb-flipbook__pages--zoomed', zoomed );
+	};
+
+	FlipbookInstance.prototype._resetZoom = function ( index ) {
+		if ( ! this.zoomState ) {
+			return;
+		}
+		this.zoomState.scale = 1;
+		this.zoomState.tx = 0;
+		this.zoomState.ty = 0;
+		this._applyZoom();
+
+		if ( this._zoomTimer ) {
+			clearTimeout( this._zoomTimer );
+			this._zoomTimer = null;
+		}
+
+		// Reclaim the large zoom-resolution canvases: drop them and let the
+		// normal lazy render redraw the visible pages at standard resolution.
+		var pages = Object.keys( this.zoomedPages );
+		if ( pages.length ) {
+			for ( var i = 0; i < pages.length; i++ ) {
+				var n = pages[ i ];
+				var pageEl = this.pageEls[ n - 1 ];
+				if ( pageEl ) {
+					var old = pageEl.querySelectorAll( 'canvas, .arfb-page__text-layer' );
+					for ( var k = 0; k < old.length; k++ ) {
+						old[ k ].remove();
+					}
+				}
+				this.renderedPages[ n ] = false;
+				this.renderedWidth[ n ] = 0;
+			}
+			this.zoomedPages = {};
+
+			var idx = typeof index === 'number'
+				? index
+				: ( this.pageFlip && this.pageFlip.getCurrentPageIndex
+					? this.pageFlip.getCurrentPageIndex()
+					: 0 );
+			this._renderAround( idx );
+		}
+	};
+
+	/**
+	 * After a zoom gesture settles, re-render the visible spread at a resolution
+	 * matching the magnified size so text is as sharp as the source PDF.
+	 * Debounced so it runs once the wheel/pinch stops, not on every tick.
+	 */
+	FlipbookInstance.prototype._scheduleZoomRerender = function () {
+		var self = this;
+		if ( this._zoomTimer ) {
+			clearTimeout( this._zoomTimer );
+		}
+		this._zoomTimer = setTimeout( function () {
+			self._zoomTimer = null;
+			if ( ! self.pageFlip ) {
+				return;
+			}
+			var idx = self.pageFlip.getCurrentPageIndex ? self.pageFlip.getCurrentPageIndex() : 0;
+			var start = Math.max( 0, idx - 1 );
+			var end = Math.min( self.pageEls.length - 1, idx + 2 );
+			for ( var i = start; i <= end; i++ ) {
+				self._renderPage( i + 1, true );
+			}
+		}, 180 );
 	};
 
 	/**
@@ -404,6 +561,7 @@
 	};
 
 	FlipbookInstance.prototype._onPageChange = function ( index ) {
+		this._resetZoom( index );
 		this._updateIndicator( index );
 		this._renderAround( index );
 		this._announce( index );
@@ -429,86 +587,111 @@
 	 * Lazily render the pages near the current spread instead of the whole
 	 * document up front, which matters for a long annual report.
 	 */
-	FlipbookInstance.prototype._renderAround = function ( index ) {
+	FlipbookInstance.prototype._renderAround = function ( index, force ) {
 		var start = Math.max( 0, index - PAGES_AROUND_CURRENT );
 		var end = Math.min( this.pageEls.length - 1, index + PAGES_AROUND_CURRENT );
 		for ( var i = start; i <= end; i++ ) {
-			this._renderPage( i + 1 ); // PDF.js pages are 1-indexed
+			this._renderPage( i + 1, force ); // PDF.js pages are 1-indexed
 		}
 	};
 
-	FlipbookInstance.prototype._renderPage = function ( pageNumber ) {
+	FlipbookInstance.prototype._renderPage = function ( pageNumber, force ) {
 		var self = this;
-		if ( this.renderedPages[ pageNumber ] ) {
+		var pageEl = this.pageEls[ pageNumber - 1 ];
+		var outputScale = window.devicePixelRatio || 1;
+
+		// Zoom multiplier: when magnified, the page is displayed larger than its
+		// layout box, so it needs proportionally more real pixels to stay sharp.
+		var zoom = ( this.zoomState && this.zoomState.scale > 1 ) ? this.zoomState.scale : 1;
+
+		// The page's current on-screen (CSS) width. May be small right now, but
+		// the same page can be blown up much larger — a spread filling the screen
+		// in fullscreen (~half the screen width per page), or magnified by zoom.
+		// Render to enough device pixels to stay crisp; a high-res canvas
+		// downscaled by CSS (see the .arfb-page canvas rule) looks sharp at any
+		// display size, which also sidesteps StPageFlip re-sizing a frame later.
+		var displayWidth = pageEl.clientWidth || 600;
+		var screenWidth = ( window.screen && window.screen.width ) || displayWidth;
+		var targetCssWidth = Math.max( displayWidth, screenWidth / 2 );
+		var cap = zoom > 1 ? MAX_RENDER_WIDTH_ZOOM : MAX_RENDER_WIDTH;
+		var targetDeviceWidth = Math.min( targetCssWidth * outputScale * zoom, cap );
+
+		// Skip if already rendered and either unforced, or already sharp enough
+		// for the requested size.
+		if ( this.renderedPages[ pageNumber ] && ! force ) {
 			return;
 		}
+		if ( this.renderedPages[ pageNumber ] && ( this.renderedWidth[ pageNumber ] || 0 ) >= targetDeviceWidth - 1 ) {
+			return;
+		}
+
 		this.renderedPages[ pageNumber ] = true;
+		this.renderedWidth[ pageNumber ] = targetDeviceWidth;
+		if ( targetDeviceWidth > MAX_RENDER_WIDTH ) {
+			this.zoomedPages[ pageNumber ] = true;
+		} else {
+			delete this.zoomedPages[ pageNumber ];
+		}
 
 		this.pdfDoc.getPage( pageNumber ).then( function ( page ) {
-			var pageEl = self.pageEls[ pageNumber - 1 ];
 			var baseViewport = page.getViewport( { scale: 1 } );
-			var outputScale = window.devicePixelRatio || 1;
-
-			// The page's current on-screen (CSS) width. May be small right now,
-			// but the same page can be blown up much larger — e.g. a two-page
-			// spread filling the screen in fullscreen, up to ~half the screen
-			// width per page. Render to whichever is bigger, times the device
-			// pixel ratio, so the canvas has enough real pixels to stay crisp
-			// when enlarged. A high-res canvas downscaled by CSS (see the
-			// .arfb-page canvas rule) looks sharp at any display size, which
-			// also sidesteps StPageFlip re-sizing the pages a frame later.
-			var displayWidth = pageEl.clientWidth || 600;
-			var screenWidth = ( window.screen && window.screen.width ) || displayWidth;
-			var targetCssWidth = Math.max( displayWidth, screenWidth / 2 );
-			var targetDeviceWidth = Math.min( targetCssWidth * outputScale, MAX_RENDER_WIDTH );
-
 			var renderScale = targetDeviceWidth / baseViewport.width;
 			var viewport = page.getViewport( { scale: renderScale } );
 
+			// Render into a detached canvas first, then swap it in once painted.
+			// This avoids a blank flash when re-rendering at a new resolution
+			// (e.g. after a zoom) — the old canvas stays visible until the new
+			// one is ready.
 			var canvas = document.createElement( 'canvas' );
 			canvas.width = Math.floor( viewport.width );
 			canvas.height = Math.floor( viewport.height );
-			pageEl.appendChild( canvas );
 
-			// Surface render failures: page.render() reports errors on its
-			// returned promise, so without this a failed render is silent and
-			// just shows as a blank page.
 			page.render( {
 				canvasContext: canvas.getContext( '2d' ),
 				viewport: viewport,
-			} ).promise.catch( function ( err ) {
+			} ).promise.then( function () {
+				var old = pageEl.querySelectorAll( 'canvas, .arfb-page__text-layer' );
+				for ( var k = 0; k < old.length; k++ ) {
+					old[ k ].remove();
+				}
+				pageEl.appendChild( canvas );
+
+				// Selectable/screen-reader text layer, kept in sync with the PDF.js
+				// version pinned in assets/vendor/pdfjs. The text-layer entry point
+				// has moved across pdf.js releases (TextLayerBuilder vs renderTextLayer
+				// vs pdfjsLib.TextLayer) -- verify this against the exact version in
+				// assets/vendor/pdfjs before shipping.
+				if ( typeof window.pdfjsLib.renderTextLayer === 'function' ) {
+					page.getTextContent().then( function ( textContent ) {
+						var textLayerDiv = document.createElement( 'div' );
+						textLayerDiv.className = 'arfb-page__text-layer';
+						textLayerDiv.style.width = viewport.width + 'px';
+						textLayerDiv.style.height = viewport.height + 'px';
+						// PDF.js 3.x positions/sizes the text spans relative to this
+						// CSS variable and errors to the console if it is missing.
+						textLayerDiv.style.setProperty( '--scale-factor', String( viewport.scale ) );
+						// The text layer is rendered at the same high-res scale as the
+						// canvas, then scaled down to the page's current display size so
+						// the selectable text stays aligned with what's shown.
+						var displayScale = ( pageEl.clientWidth || displayWidth ) / viewport.width;
+						textLayerDiv.style.transform = 'scale(' + displayScale + ')';
+						pageEl.appendChild( textLayerDiv );
+
+						window.pdfjsLib.renderTextLayer( {
+							textContentSource: textContent,
+							container: textLayerDiv,
+							viewport: viewport,
+						} );
+					} );
+				}
+			} ).catch( function ( err ) {
+				// A failed render shouldn't leave the page permanently marked as
+				// done — allow a later attempt to try again.
+				self.renderedPages[ pageNumber ] = false;
+				self.renderedWidth[ pageNumber ] = 0;
 				// eslint-disable-next-line no-console
 				console.error( 'Annual Report Flipbook: failed to render page ' + pageNumber, err );
 			} );
-
-			// Selectable/screen-reader text layer, kept in sync with the PDF.js
-			// version pinned in assets/vendor/pdfjs. The text-layer entry point
-			// has moved across pdf.js releases (TextLayerBuilder vs renderTextLayer
-			// vs pdfjsLib.TextLayer) -- verify this against the exact version in
-			// assets/vendor/pdfjs before shipping.
-			if ( typeof window.pdfjsLib.renderTextLayer === 'function' ) {
-				page.getTextContent().then( function ( textContent ) {
-					var textLayerDiv = document.createElement( 'div' );
-					textLayerDiv.className = 'arfb-page__text-layer';
-					textLayerDiv.style.width = viewport.width + 'px';
-					textLayerDiv.style.height = viewport.height + 'px';
-					// PDF.js 3.x positions/sizes the text spans relative to this
-					// CSS variable and errors to the console if it is missing.
-					textLayerDiv.style.setProperty( '--scale-factor', String( viewport.scale ) );
-					// The text layer is rendered at the same high-res scale as the
-					// canvas, then scaled down to the page's current display size so
-					// the selectable text stays aligned with what's shown.
-					var displayScale = ( pageEl.clientWidth || displayWidth ) / viewport.width;
-					textLayerDiv.style.transform = 'scale(' + displayScale + ')';
-					pageEl.appendChild( textLayerDiv );
-
-					window.pdfjsLib.renderTextLayer( {
-						textContentSource: textContent,
-						container: textLayerDiv,
-						viewport: viewport,
-					} );
-				} );
-			}
 		} );
 	};
 

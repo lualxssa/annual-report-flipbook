@@ -222,6 +222,16 @@
 	aspect-ratio: 4 / 3;
 }
 
+/* Zoom (Ctrl/Cmd + wheel or trackpad pinch): drag to pan while zoomed in. */
+.arfb-flipbook__pages--zoomed {
+	cursor: grab;
+	will-change: transform;
+}
+
+.arfb-flipbook__pages--grabbing {
+	cursor: grabbing;
+}
+
 /* --- Fullscreen ------------------------------------------------------- */
 
 /* When the viewer element itself is the fullscreen element, let it fill the
