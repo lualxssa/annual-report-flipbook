@@ -1,0 +1,19 @@
+{
+  "name": "annual-report-flipbook-dev",
+  "private": true,
+  "description": "Dev-only tooling (tests + packaging) for the Annual Report Flipbook WordPress plugin. Not shipped with the plugin.",
+  "scripts": {
+    "test": "npm run test:e2e",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:php": "wp-env run tests-cli --env-cwd=wp-content/plugins/annual-report-flipbook vendor/bin/phpunit",
+    "env:start": "wp-env start",
+    "env:stop": "wp-env stop",
+    "serve": "node tests/static-server.js",
+    "build:zip": "git archive --format=zip --prefix=annual-report-flipbook/ -o annual-report-flipbook.zip HEAD"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0",
+    "@wordpress/env": "^10.0.0"
+  }
+}
