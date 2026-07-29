@@ -61,7 +61,7 @@
 .arfb-flipbook {
 	position: relative;
 	width: 100%;
-	max-width: 900px;
+	max-width: 1400px;
 	margin: 0 auto;
 	/* Theming hooks — override these in your theme to recolor the controls. */
 	--arfb-accent: #2563eb;
@@ -93,6 +93,8 @@
 	width: 44px; /* touch target */
 	height: 44px;
 	padding: 0;
+	-webkit-appearance: none;
+	appearance: none;
 	color: var(--arfb-btn-fg);
 	border: 1px solid var(--arfb-btn-border);
 	border-radius: var(--arfb-btn-radius);
@@ -141,6 +143,8 @@
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+	-webkit-appearance: none;
+	appearance: none;
 	border: 0;
 	border-radius: 50%;
 	background: rgba(22, 24, 30, 0.55);
@@ -150,6 +154,24 @@
 	backdrop-filter: blur(2px);
 	-webkit-backdrop-filter: blur(2px);
 	transition: background-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
+}
+
+/* Keep the arrows round and shadowed even when a host WordPress theme restyles
+   buttons on hover/focus/active — a common cause of the control turning into a
+   square box when pressed. Scoped through .arfb-flipbook and forcing the shape
+   so theme button rules can't override it. */
+.arfb-flipbook .arfb-nav,
+.arfb-flipbook .arfb-nav:hover,
+.arfb-flipbook .arfb-nav:focus,
+.arfb-flipbook .arfb-nav:active {
+	border: 0;
+	border-radius: 50% !important;
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.arfb-flipbook .arfb-nav:focus {
+	outline: none;
+	background: rgba(22, 24, 30, 0.8);
 }
 
 .arfb-nav svg {

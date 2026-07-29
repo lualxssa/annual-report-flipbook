@@ -542,8 +542,13 @@
 		if ( isFullscreen ) {
 			// Space above the pages (toolbar, TOC, etc.) plus a little breathing room.
 			var chromeHeight = this.stage.offsetTop;
-			var availableHeight = this.container.clientHeight - chromeHeight - 24;
-			var maxWidth = availableHeight / this.spreadHeightRatio;
+			var availableHeight = this.container.clientHeight - chromeHeight - 12;
+			// The stage's side gutters (room for the arrows) don't hold the book,
+			// so add them back in: cap so the BOOK — not the padded stage — fills
+			// the available height, using as much of the screen as possible.
+			var cs = window.getComputedStyle( this.stage );
+			var padX = ( parseFloat( cs.paddingLeft ) || 0 ) + ( parseFloat( cs.paddingRight ) || 0 );
+			var maxWidth = ( availableHeight / this.spreadHeightRatio ) + padX;
 			this.stage.style.maxWidth = Math.floor( maxWidth ) + 'px';
 			this.stage.style.marginLeft = 'auto';
 			this.stage.style.marginRight = 'auto';
@@ -739,3 +744,5 @@
 		ArfbFlipbook.initAll();
 	}
 } )( window, document );
+
+// 3.32
