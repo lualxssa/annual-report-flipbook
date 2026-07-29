@@ -229,20 +229,64 @@
 	margin: 0;
 	padding-left: 1.5em;
 }
-
 .arfb-flipbook__stage {
 	position: relative;
 	width: 100%;
-	box-sizing: border-box;
-	/* Side gutters reserve room for the arrows so they sit beside the book,
-	   never on top of it. */
-	padding: 0 64px;
+	box-sizing: border-box;   /* Side gutters box */
+	padding: 19px 35px;      /********Update: changes to flipbook background*, used to be 0 64px // 24px 64px all black // 80px 160px not stretched enough *****/
+	background-color: #000;       /* black overlay */
+	border-radius: 0px;     /*round edges as 12px, nope maybe sharp looks better */
+	
+	background-image: url('https://dev.ontariocourts.ca/scj/wp-content/uploads/2026/07/scj.png');
+	background-size: cover;
+	background-position: center;
+	background-repeat: no-repeat;
+	border-radius: 0;
+		
+
 }
+
+.arfb-flipbook__pages--single{                 /**Update by Sim: Adding a front cover, not a 2 page spread */
+	width: 50%;
+	margin-left: auto;
+	margin-right: auto;
+}
+
+
+arfb-flipbook__pages--single::after {                 /**Update by Sim: hiding spine shading bar on front cover */
+	display: none;
+}
+
 
 .arfb-flipbook__pages {
 	width: 100%;
 	aspect-ratio: 4 / 3;
+	position: relative;          /**********Update by Sim: Adding spine, pages separator */
 }
+
+
+.arfb-flipbook__pages::after {             /*****Sim */
+	content: "";
+	position: absolute;
+	top: 2.75%;
+	bottom: 2.8%;
+	left: 50%;
+	width: 45px;              /* 60px too wide */
+	transform: translateX(-50%);
+	pointer-events: none;    /* never blocks page clicks/drags */
+	z-index: 4;              /* above pages, below your nav arrows (z-index 5) */
+	background: linear-gradient(
+		to right,
+		rgba(0, 0, 0, 0) 0%,
+		rgba(0, 0, 0, 0.28) 50%,
+		rgba(0, 0, 0, 0) 100%
+	);
+}
+
+
+
+
+
 
 /* Zoom (Ctrl/Cmd + wheel or trackpad pinch): drag to pan while zoomed in. */
 .arfb-flipbook__pages--zoomed {
