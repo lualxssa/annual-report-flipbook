@@ -1,0 +1,43 @@
+name: Build plugin zip
+
+# Produces the distributable plugin zip reproducibly from git, so every release
+# is identical regardless of who (or which machine) builds it.
+#   - Push a version tag (e.g. v1.0.1)  -> builds from that tag and attaches the
+#     zip to a GitHub Release.
+#   - Run manually (workflow_dispatch)  -> builds from the chosen ref and uploads
+#     the zip as a downloadable workflow artifact.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to attach the zip to a Release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+
+      - name: Build the plugin zip (git archive respects .gitattributes export-ignore)
+        run: |
+          git archive --format=zip \
+            --prefix=annual-report-flipbook/ \
+            -o annual-report-flipbook.zip \
+            HEAD
+
+      - name: Upload as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: annual-report-flipbook
+          path: annual-report-flipbook.zip
+
+      - name: Attach to the GitHub Release (tag builds only)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: annual-report-flipbook.zip

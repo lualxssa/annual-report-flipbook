@@ -1,2 +1,30 @@
 # Normalize line endings: store LF in the repo, let Git handle checkout.
 * text=auto eol=lf
+
+# --- Distribution excludes ---------------------------------------------------
+# Files tracked in git but NOT shipped in the plugin zip. `git archive` (see the
+# build:zip script / release workflow) omits anything marked export-ignore, so
+# the released package contains only the plugin runtime. Keep this list as the
+# single shared source of truth for what stays out of releases.
+/.gitattributes   export-ignore
+/.gitignore       export-ignore
+/.github          export-ignore
+/.github/**       export-ignore
+/.wp-env.json     export-ignore
+/tests            export-ignore
+/tests/**         export-ignore
+/tools            export-ignore
+/tools/**         export-ignore
+/package.json     export-ignore
+/package-lock.json export-ignore
+/playwright.config.js export-ignore
+/composer.json    export-ignore
+/composer.lock    export-ignore
+/phpunit.xml.dist export-ignore
+/preview.html     export-ignore
+/admin-preview.html export-ignore
+/embed-demo.html  export-ignore
+/architecture.html export-ignore
+/TESTING.md       export-ignore
+/BUILD.md         export-ignore
+/SETUP.md         export-ignore

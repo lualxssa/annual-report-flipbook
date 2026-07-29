@@ -24,7 +24,7 @@
 <style>
 	body {
 		font-family: system-ui, sans-serif;
-		max-width: 960px;
+		max-width: 1400px;
 		margin: 24px auto;
 		padding: 0 16px;
 		/* StPageFlip briefly draws the lifted page past the edge mid-flip; keep
@@ -33,6 +33,11 @@
 	}
 	h1 {
 		font-size: 1.25rem;
+	}
+	/* Let the preview use the full width above (the plugin's default caps the
+	   viewer at 900px; here we want it as large as possible to check clarity). */
+	#arfb-preview.arfb-flipbook {
+		max-width: 100%;
 	}
 	.arfb-notice {
 		background: #fff8e5;
