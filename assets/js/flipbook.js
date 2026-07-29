@@ -226,6 +226,42 @@
 		toolbar.appendChild( pageIndicator );
 		this.pageIndicator = pageIndicator;
 
+		// *** UPDATE: Jump2page control 
+			var jumpInput = document.createElement( 'input' );
+		jumpInput.type = 'number';
+		jumpInput.min = '1';                                    //min as pg 1, no error entries -1 0 etc
+		jumpInput.max = String( this.pageEls.length );
+		jumpInput.setAttribute( 'aria-label', 'Go to page' );
+		jumpInput.style.width = '4.5em';
+
+		var jumpBtn = document.createElement( 'button' );
+		jumpBtn.type = 'button';
+		jumpBtn.textContent = 'Go';
+
+		function doJump() {
+			var n = parseInt( jumpInput.value, 10 );
+			if ( isNaN( n ) || ! self.pageFlip ) {
+				return;
+			}
+			var target = Math.min( Math.max( n, 1 ), self.pageEls.length ) - 1;    //** pg set up up to not including...
+			self.pageFlip.flip( target );
+			jumpInput.value = '';
+		}
+
+		jumpBtn.addEventListener( 'click', doJump );
+		jumpInput.addEventListener( 'keydown', function ( e ) {
+			if ( e.key === 'Enter' ) {
+				e.preventDefault();
+				doJump();
+			}
+			e.stopPropagation();
+		} );
+
+		toolbar.appendChild( jumpInput );
+		toolbar.appendChild( jumpBtn );
+
+		
+
 		iconButton(
 			'arfb-btn--fullscreen',
 			t.fullscreen || 'Toggle fullscreen',
@@ -248,10 +284,10 @@
 		download.innerHTML = arfbIcon( 'M12 3v11 M8 11l4 4 4-4 M5 20h14' );
 		toolbar.appendChild( download );
 
-		this.container.insertBefore( toolbar, this.stage );
+		this.container.insertBefore( toolbar, this.stage );   //end of tool bar features
 	};
 
-	FlipbookInstance.prototype._loadOutline = function () {
+	FlipbookInstance.prototype._loadOutline = function () {        //embedded books in PDF
 		var self = this;
 		return this.pdfDoc.getOutline().then( function ( outline ) {
 			if ( ! outline || ! outline.length ) {
@@ -570,6 +606,15 @@
 		this._updateIndicator( index );
 		this._renderAround( index );
 		this._announce( index );
+
+
+		/*flipbook front cover */
+		var isPageSingle = ( index === 0 ) || ( index === this.pageEls.length - 1 );
+		this.viewerEl.classList.toggle( 'arfb-flipbook__pages--single', isPageSingle );
+
+
+
+		
 	};
 
 	FlipbookInstance.prototype._updateIndicator = function ( index ) {
