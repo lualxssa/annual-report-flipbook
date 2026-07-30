@@ -234,8 +234,9 @@
 		jumpInput.setAttribute( 'aria-label', 'Go to page' );
 		jumpInput.style.width = '4.5em';
 
-		var jumpBtn = document.createElement( 'button' );
+		var jumpBtn = document.createElement( 'button' );   //make go button more accessible 
 		jumpBtn.type = 'button';
+		jumpBtn.className = 'arfb-jump-btn';
 		jumpBtn.textContent = 'Go';
 
 		function doJump() {
