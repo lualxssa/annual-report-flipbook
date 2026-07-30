@@ -79,13 +79,126 @@
 	padding: 3em 1em;
 }
 
+/* Floating control bar
+   (zoom only transforms the pages, not this bar). */
 .arfb-flipbook__toolbar {
+	position: absolute;
+	left: 50%;
+	bottom: 12px;
+	transform: translateX(-50%);
+	z-index: 6;
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
 	justify-content: center;
-	gap: 10px;
-	margin-bottom: 16px;
+	gap: 6px;
+	max-width: calc(100% - 24px);
+	padding: 7px 12px;
+	background: rgba(22, 24, 30, 0.66);
+	border-radius: 999px;
+	box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
+	backdrop-filter: blur(6px);
+	-webkit-backdrop-filter: blur(6px);
+}
+
+/* Controls inside the bar take a glass style so they read over the pages. */
+.arfb-flipbook__toolbar .arfb-btn {
+	--arfb-btn-bg: transparent;
+	--arfb-btn-bg-hover: rgba(255, 255, 255, 0.18);
+	--arfb-btn-fg: #fff;
+	--arfb-btn-border: transparent;
+	position: relative; /* anchor for the hover tooltip */
+	width: 46px;
+	height: 46px;
+	border-radius: 50%; /* circular hover highlight*/
+	box-shadow: none;
+}
+
+.arfb-flipbook__toolbar .arfb-btn svg {
+	width: 24px;
+	height: 24px;
+}
+
+.arfb-flipbook__toolbar .arfb-btn:hover {
+	transform: none;
+	box-shadow: none;
+}
+
+/* Label shown on hover / keyboard focus (e.g. "Toggle fullscreen"). Pulls the
+   button's accessible name so it stays in sync with the aria-label. */
+.arfb-flipbook__toolbar .arfb-btn::after {
+	content: attr( aria-label );
+	position: absolute;
+	bottom: calc( 100% + 8px );
+	left: 50%;
+	transform: translateX( -50% );
+	padding: 6px 10px;
+	border-radius: 6px;
+	background: rgba( 22, 24, 30, 0.95 );
+	color: #fff;
+	font-size: 16px;
+	line-height: 1;
+	white-space: nowrap;
+	opacity: 0;
+	pointer-events: none;
+	transition: opacity 0.12s ease;
+}
+
+.arfb-flipbook__toolbar .arfb-btn:hover::after,
+.arfb-flipbook__toolbar .arfb-btn:focus-visible::after {
+	opacity: 1;
+}
+
+/* Page-number control inside the bar. */
+.arfb-flipbook__page-control {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 0 6px;
+	color: #fff;
+	font-size: 0.95em;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* subtle highlight on hover/focus to show it's editable. */
+.arfb-flipbook__page-input {
+	width: 2.6em;
+	height: 32px;
+	padding: 0 2px;
+	text-align: center;
+	color: #fff;
+	background: transparent;
+	border: 0;
+	border-radius: 6px;
+	font: inherit;
+	font-variant-numeric: tabular-nums;
+	cursor: text;
+	-webkit-appearance: none;
+	-moz-appearance: textfield;
+	appearance: none;
+}
+
+.arfb-flipbook__page-input:hover {
+	background: rgba(255, 255, 255, 0.12);
+}
+
+.arfb-flipbook__page-input:focus,
+.arfb-flipbook__page-input:focus-visible {
+	background: rgba(255, 255, 255, 0.18);
+	outline: 2px solid #fff;
+	outline-offset: 1px;
+}
+
+/* Hide the number-spinner arrows so it stays clean. */
+.arfb-flipbook__page-input::-webkit-outer-spin-button,
+.arfb-flipbook__page-input::-webkit-inner-spin-button {
+	-webkit-appearance: none;
+	margin: 0;
+}
+
+.arfb-flipbook__page-total {
+	opacity: 0.9;
 }
 
 /* Clean, square icon buttons (fullscreen, download). */
@@ -156,10 +269,7 @@
 	transition: background-color 0.15s ease, transform 0.15s ease, opacity 0.15s ease;
 }
 
-/* Keep the arrows round and shadowed even when a host WordPress theme restyles
-   buttons on hover/focus/active — a common cause of the control turning into a
-   square box when pressed. Scoped through .arfb-flipbook and forcing the shape
-   so theme button rules can't override it. */
+/* Keep the arrows round and shadowed */
 .arfb-flipbook .arfb-nav,
 .arfb-flipbook .arfb-nav:hover,
 .arfb-flipbook .arfb-nav:focus,
@@ -233,9 +343,11 @@
 	position: relative;
 	width: 100%;
 	box-sizing: border-box;   /* Side gutters box */
-	padding: 19px 35px;      /********Update: changes to flipbook background*, used to be 0 64px // 24px 64px all black // 80px 160px not stretched enough *****/
-	background-color: #000;       /* black overlay */
-	border-radius: 0px;     /*round edges as 12px, nope maybe sharp looks better */
+	/* Extra bottom room so the floating control bar sits in the background strip
+	   below the book, not over the pages. */
+	padding: 19px 35px 60px;
+	background-color: #000;
+	border-radius: 0px;     
 	
 	background-image: url('https://dev.ontariocourts.ca/scj/wp-content/uploads/2026/07/scj.png');
 	background-size: cover;
@@ -329,16 +441,6 @@ arfb-flipbook__pages--single::after {                 /**Update by Sim: hiding s
 	flex: 1 1 auto;
 	min-height: 0;
 	aspect-ratio: auto;
-}
-
-/* On the dark fullscreen backdrop, give the neutral buttons a translucent
-   "glass" look so they read clearly against it. Safe to hard-code light values
-   here because this backdrop is always dark. */
-.arfb-flipbook:fullscreen .arfb-btn {
-	--arfb-btn-bg: rgba(255, 255, 255, 0.14);
-	--arfb-btn-bg-hover: rgba(255, 255, 255, 0.24);
-	--arfb-btn-fg: #fff;
-	--arfb-btn-border: rgba(255, 255, 255, 0.35);
 }
 
 .arfb-page {

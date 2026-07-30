@@ -32,6 +32,11 @@
 	// larger canvases is reclaimed when the zoom is reset).
 	var MAX_RENDER_WIDTH_ZOOM = 3000;
 
+	// Maximum magnification for the zoom gesture and the +/- buttons, and the
+	// multiplier applied per button click.
+	var MAX_ZOOM = 4;
+	var ZOOM_STEP = 1.5;
+
 	// Build a small inline SVG icon from a single path, inheriting currentColor.
 	function arfbIcon( path ) {
 		return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
@@ -214,53 +219,59 @@
 			b.type = 'button';
 			b.className = 'arfb-btn ' + className;
 			b.setAttribute( 'aria-label', label );
-			b.title = label;
 			b.innerHTML = arfbIcon( path );
 			b.addEventListener( 'click', onClick );
 			toolbar.appendChild( b );
 			return b;
 		}
 
-		var pageIndicator = document.createElement( 'span' );
-		pageIndicator.className = 'arfb-flipbook__page-indicator';
-		toolbar.appendChild( pageIndicator );
-		this.pageIndicator = pageIndicator;
-
-		// *** UPDATE: Jump2page control 
-			var jumpInput = document.createElement( 'input' );
-		jumpInput.type = 'number';
-		jumpInput.min = '1';                                    //min as pg 1, no error entries -1 0 etc
-		jumpInput.max = String( this.pageEls.length );
-		jumpInput.setAttribute( 'aria-label', 'Go to page' );
-		jumpInput.style.width = '4.5em';
-
-		var jumpBtn = document.createElement( 'button' );
-		jumpBtn.type = 'button';
-		jumpBtn.textContent = 'Go';
-
-		function doJump() {
-			var n = parseInt( jumpInput.value, 10 );
-			if ( isNaN( n ) || ! self.pageFlip ) {
-				return;
-			}
-			var target = Math.min( Math.max( n, 1 ), self.pageEls.length ) - 1;    //** pg set up up to not including...
-			self.pageFlip.flip( target );
-			jumpInput.value = '';
-		}
-
-		jumpBtn.addEventListener( 'click', doJump );
-		jumpInput.addEventListener( 'keydown', function ( e ) {
-			if ( e.key === 'Enter' ) {
-				e.preventDefault();
-				doJump();
-			}
-			e.stopPropagation();
+		// Zoom controls.
+		iconButton( 'arfb-btn--zoom-out', t.zoomOut || 'Zoom out', 'M5 12h14', function () {
+			self._zoomBy( 1 / ZOOM_STEP );
+		} );
+		iconButton( 'arfb-btn--zoom-in', t.zoomIn || 'Zoom in', 'M12 5v14 M5 12h14', function () {
+			self._zoomBy( ZOOM_STEP );
 		} );
 
-		toolbar.appendChild( jumpInput );
-		toolbar.appendChild( jumpBtn );
+		// Page control: shows the current page as an editable field; type a
+		// number and press Enter (or leave the field) to jump. "/ N" is the total.
+		var pageControl = document.createElement( 'span' );
+		pageControl.className = 'arfb-flipbook__page-control';
 
-		
+		var pageInput = document.createElement( 'input' );
+		pageInput.type = 'number';
+		pageInput.min = '1';
+		pageInput.max = String( this.pageEls.length );
+		pageInput.className = 'arfb-flipbook__page-input';
+		pageInput.setAttribute( 'aria-label', t.goToPage || 'Go to page' );
+		this.pageInput = pageInput;
+
+		var pageTotal = document.createElement( 'span' );
+		pageTotal.className = 'arfb-flipbook__page-total';
+		pageTotal.textContent = '/ ' + this.pageEls.length;
+
+		function jumpToInput() {
+			var n = parseInt( pageInput.value, 10 );
+			if ( isNaN( n ) || ! self.pageFlip ) {
+				self._updateIndicator( self.currentIndex || 0 ); // restore
+				return;
+			}
+			var target = Math.min( Math.max( n, 1 ), self.pageEls.length ) - 1;
+			self.pageFlip.flip( target );
+		}
+		pageInput.addEventListener( 'keydown', function ( e ) {
+			e.stopPropagation(); // keep arrow keys in the field from flipping pages
+			if ( e.key === 'Enter' ) {
+				e.preventDefault();
+				jumpToInput();
+				pageInput.blur();
+			}
+		} );
+		pageInput.addEventListener( 'change', jumpToInput );
+
+		pageControl.appendChild( pageInput );
+		pageControl.appendChild( pageTotal );
+		toolbar.appendChild( pageControl );
 
 		iconButton(
 			'arfb-btn--fullscreen',
@@ -280,11 +291,12 @@
 		download.href = this.pdfUrl;
 		download.setAttribute( 'download', '' );
 		download.setAttribute( 'aria-label', t.download || 'Download PDF' );
-		download.title = t.download || 'Download PDF';
 		download.innerHTML = arfbIcon( 'M12 3v11 M8 11l4 4 4-4 M5 20h14' );
 		toolbar.appendChild( download );
 
-		this.container.insertBefore( toolbar, this.stage );   //end of tool bar features
+		// Appended (not inserted above the stage) so it overlays the viewer as a
+		// floating bar — see the .arfb-flipbook__toolbar styles.
+		this.container.appendChild( toolbar );
 	};
 
 	FlipbookInstance.prototype._loadOutline = function () {        //embedded books in PDF
@@ -390,7 +402,6 @@
 		var self = this;
 		var lastFlip = 0;
 		var COOLDOWN = 450; // ms between wheel-driven flips
-		var MAX_ZOOM = 4;
 
 		this.stage.addEventListener(
 			'wheel',
@@ -402,21 +413,8 @@
 				// --- Zoom gesture: Ctrl/Cmd + wheel, or trackpad pinch ---
 				if ( e.ctrlKey || e.metaKey ) {
 					e.preventDefault();
-
-					var z = self.zoomState;
-					var rect = self.viewerEl.getBoundingClientRect();
-					var px = ( e.clientX - rect.left ) / z.scale; // content point under pointer
-					var py = ( e.clientY - rect.top ) / z.scale;
-
-					var factor = Math.exp( -e.deltaY * 0.0015 );
-					var newScale = Math.min( MAX_ZOOM, Math.max( 1, z.scale * factor ) );
-
-					// Keep that content point under the pointer after scaling.
-					z.tx += ( e.clientX - px * newScale ) - rect.left;
-					z.ty += ( e.clientY - py * newScale ) - rect.top;
-					z.scale = newScale;
-					self._applyZoom();
-					self._scheduleZoomRerender();
+					// Anchored at the pointer.
+					self._zoomBy( Math.exp( -e.deltaY * 0.0015 ), e.clientX, e.clientY );
 					return;
 				}
 
@@ -489,6 +487,42 @@
 				self._resetZoom();
 			}
 		} );
+	};
+
+	/**
+	 * Zoom by a multiplicative factor, keeping a screen point fixed. Defaults to
+	 * the centre of the book (used by the +/- toolbar buttons); the wheel/pinch
+	 * gesture passes the pointer position. Shared so both behave identically.
+	 */
+	FlipbookInstance.prototype._zoomBy = function ( factor, clientX, clientY ) {
+		var z = this.zoomState;
+		if ( ! z ) {
+			return;
+		}
+		var rect = this.viewerEl.getBoundingClientRect();
+		if ( clientX == null ) {
+			clientX = rect.left + rect.width / 2;
+		}
+		if ( clientY == null ) {
+			clientY = rect.top + rect.height / 2;
+		}
+
+		var newScale = Math.min( MAX_ZOOM, Math.max( 1, z.scale * factor ) );
+
+		// Back to fit — reset cleanly (also reclaims the zoom-resolution canvases).
+		if ( newScale === 1 ) {
+			this._resetZoom();
+			return;
+		}
+
+		// Keep the anchor point under the same screen position after scaling.
+		var px = ( clientX - rect.left ) / z.scale;
+		var py = ( clientY - rect.top ) / z.scale;
+		z.tx += ( clientX - px * newScale ) - rect.left;
+		z.ty += ( clientY - py * newScale ) - rect.top;
+		z.scale = newScale;
+		this._applyZoom();
+		this._scheduleZoomRerender();
 	};
 
 	FlipbookInstance.prototype._applyZoom = function () {
@@ -602,6 +636,7 @@
 	};
 
 	FlipbookInstance.prototype._onPageChange = function ( index ) {
+		this.currentIndex = index;
 		this._resetZoom( index );
 		this._updateIndicator( index );
 		this._renderAround( index );
@@ -618,18 +653,18 @@
 	};
 
 	FlipbookInstance.prototype._updateIndicator = function ( index ) {
-		if ( ! this.pageIndicator ) {
-			return;
+		// Reflect the current page in the input, unless the user is typing in it.
+		if ( this.pageInput && document.activeElement !== this.pageInput ) {
+			this.pageInput.value = String( index + 1 );
 		}
-		var template = t.pageOf || 'Page %1$d of %2$d';
-		this.pageIndicator.textContent = template
-			.replace( '%1$d', index + 1 )
-			.replace( '%2$d', this.pageEls.length );
 	};
 
 	FlipbookInstance.prototype._announce = function ( index ) {
 		if ( this.liveRegion ) {
-			this.liveRegion.textContent = this.pageIndicator ? this.pageIndicator.textContent : '';
+			var template = t.pageOf || 'Page %1$d of %2$d';
+			this.liveRegion.textContent = template
+				.replace( '%1$d', index + 1 )
+				.replace( '%2$d', this.pageEls.length );
 		}
 	};
 
