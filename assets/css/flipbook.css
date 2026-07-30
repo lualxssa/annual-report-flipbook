@@ -358,14 +358,9 @@
 
 }
 
-.arfb-flipbook__pages--single{                 /**Update by Sim: Adding a front cover, not a 2 page spread */
-	width: 50%;
-	margin-left: auto;
-	margin-right: auto;
-}
-
-
-arfb-flipbook__pages--single::after {                 /**Update by Sim: hiding spine shading bar on front cover */
+/* Single cover pages are now handled natively by StPageFlip (showCover: true);
+   we only hide the centre spine shadow when a single cover is showing. */
+.arfb-flipbook__pages--single::after {
 	display: none;
 }
 

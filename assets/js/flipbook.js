@@ -367,7 +367,7 @@
 			minHeight: 200,
 			maxHeight: 2800,
 			maxShadowOpacity: 0.5,
-			showCover: false,
+			showCover: true, // first & last pages render as single covers
 			mobileScrollSupport: true,
 			flippingTime: this.reducedMotion ? 1 : 700,
 			useMouseEvents: true,
@@ -377,6 +377,12 @@
 
 		this.pageFlip.on( 'flip', function ( e ) {
 			self._onPageChange( e.data );
+		} );
+
+		// Hide the static spine/gutter shadow while a page is folding or flipping
+		// so it doesn't sit awkwardly over the animation
+		this.pageFlip.on( 'changeState', function ( e ) {
+			self.viewerEl.classList.toggle( 'arfb-flipbook__pages--flipping', e.data !== 'read' );
 		} );
 
 		document.addEventListener( 'fullscreenchange', function () {
@@ -723,10 +729,9 @@
 			var renderScale = targetDeviceWidth / baseViewport.width;
 			var viewport = page.getViewport( { scale: renderScale } );
 
-			// Render into a detached canvas first, then swap it in once painted.
-			// This avoids a blank flash when re-rendering at a new resolution
-			// (e.g. after a zoom) — the old canvas stays visible until the new
-			// one is ready.
+			// Keep the old canvas visible and render into a detached canvas first, then swap it in once painted.
+			// to avoid a blank flash when re-rendering at a new resolution
+			// (e.g. after a zoom)
 			var canvas = document.createElement( 'canvas' );
 			canvas.width = Math.floor( viewport.width );
 			canvas.height = Math.floor( viewport.height );
