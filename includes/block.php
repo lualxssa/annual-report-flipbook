@@ -162,6 +162,7 @@ function arfb_render_flipbook( $atts = array() ) {
 					<?php echo esc_html( sprintf( /* translators: %s: report title */ __( 'Download %s (PDF)', 'annual-report-flipbook' ), $atts['title'] ) ); ?>
 				</a>
 			</p>
+			<p class="arfb-flipbook__note">Note: To view an accessible version of the report, download Ontario Superior Court of Justice: Progressing In The Public Interest 2024 – 2025 Report to view the PDF.</p>
 		</noscript>
 	</div>
 	<?php

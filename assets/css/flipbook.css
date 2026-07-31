@@ -161,16 +161,17 @@
 	white-space: nowrap;
 }
 
-/* subtle highlight on hover/focus to show it's editable. */
+/* Clear, editable-looking field so the page entry is easy to spot. */
 .arfb-flipbook__page-input {
-	width: 2.6em;
+	width: 2.8em;
 	height: 32px;
-	padding: 0 2px;
+	padding: 0 6px;
 	text-align: center;
 	color: #fff;
-	background: transparent;
-	border: 0;
-	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.15);
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	border-radius: 8px;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
 	font: inherit;
 	font-variant-numeric: tabular-nums;
 	cursor: text;
@@ -180,14 +181,17 @@
 }
 
 .arfb-flipbook__page-input:hover {
-	background: rgba(255, 255, 255, 0.12);
+	background: rgba(255, 255, 255, 0.2);
+	border-color: rgba(255, 255, 255, 0.45);
 }
 
 .arfb-flipbook__page-input:focus,
 .arfb-flipbook__page-input:focus-visible {
-	background: rgba(255, 255, 255, 0.18);
-	outline: 2px solid #fff;
+	background: rgba(255, 255, 255, 0.24);
+	border-color: rgba(255, 255, 255, 0.62);
+	outline: 2px solid rgba(255, 255, 255, 0.9);
 	outline-offset: 1px;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 2px rgba(255, 255, 255, 0.12);
 }
 
 /* Hide the number-spinner arrows so it stays clean. */
@@ -358,8 +362,7 @@
 
 }
 
-/* Single cover pages are now handled natively by StPageFlip (showCover: true);
-   we only hide the centre spine shadow when a single cover is showing. */
+
 .arfb-flipbook__pages--single::after {
 	display: none;
 }

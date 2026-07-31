@@ -53,6 +53,7 @@
 		this.title = container.getAttribute( 'data-title' ) || '';
 		this.pdfDoc = null;
 		this.pageFlip = null;
+		this.requestedPage = null;
 		this.pageEls = [];
 		this.renderedPages = {};
 		this.renderedWidth = {}; // device-px width each page was last rendered at
@@ -70,6 +71,7 @@
 		this.container.setAttribute( 'role', 'region' );
 		this.container.setAttribute( 'aria-label', this.title );
 
+		// Show a loading message while the PDF downloads.
 		var status = document.createElement( 'p' );
 		status.className = 'arfb-flipbook__status';
 		status.textContent = t.loading || 'Loading…';
@@ -105,11 +107,13 @@
 	FlipbookInstance.prototype._load = function () {
 		var self = this;
 
+		// Error if PDF URL or PDF.js is missing
 		if ( ! this.pdfUrl || ! window.pdfjsLib ) {
 			this._showError();
 			return;
 		}
 
+		// Load the PDF document and render the first page shell.
 		window.pdfjsLib
 			.getDocument( this.pdfUrl )
 			.promise.then( function ( pdfDoc ) {
@@ -139,9 +143,11 @@
 		}
 		this.container.classList.remove( 'arfb-flipbook--loading' );
 		this.container.classList.add( 'arfb-flipbook--error' );
+		// fallback message and a link to download the PDF.
 		this.container.innerHTML =
 			'<p class="arfb-flipbook__status">' + ( t.loadError || 'Sorry, the report could not be loaded.' ) + '</p>' +
-			'<p><a href="' + this.pdfUrl + '">' + ( t.download || 'Download PDF' ) + '</a></p>';
+			'<p><a href="' + this.pdfUrl + '">' + ( t.download || 'Download PDF' ) + '</a></p>' +
+			'<p class="arfb-flipbook__note">Note: To view an accessible version of the report, download Ontario Superior Court of Justice: Progressing In The Public Interest 2024 – 2025 Report to view the PDF.</p>';
 	};
 
 	/**
@@ -209,6 +215,7 @@
 		} );
 	};
 
+	// Toolbar
 	FlipbookInstance.prototype._buildToolbar = function () {
 		var self = this;
 		var toolbar = document.createElement( 'div' );
@@ -253,11 +260,21 @@
 		function jumpToInput() {
 			var n = parseInt( pageInput.value, 10 );
 			if ( isNaN( n ) || ! self.pageFlip ) {
+				self.requestedPage = null;
 				self._updateIndicator( self.currentIndex || 0 ); // restore
 				return;
 			}
-			var target = Math.min( Math.max( n, 1 ), self.pageEls.length ) - 1;
-			self.pageFlip.flip( target );
+			self.requestedPage = Math.min( Math.max( n, 1 ), self.pageEls.length );
+			var target = self.requestedPage - 1; // internal page index
+			if ( typeof self.pageFlip.turnToPage === 'function' ) {
+				self.pageFlip.turnToPage( target );
+			} else if ( typeof self.pageFlip.flipToPage === 'function' ) {
+				self.pageFlip.flipToPage( target );
+			} else if ( typeof self.pageFlip.show === 'function' ) {
+				self.pageFlip.show( target );
+			} else {
+				self.pageFlip.flip( target );
+			}
 		}
 		pageInput.addEventListener( 'keydown', function ( e ) {
 			e.stopPropagation(); // keep arrow keys in the field from flipping pages
@@ -376,7 +393,10 @@
 		this.pageFlip.loadFromHTML( this.pageEls );
 
 		this.pageFlip.on( 'flip', function ( e ) {
-			self._onPageChange( e.data );
+			var index = typeof self.pageFlip.getCurrentPageIndex === 'function'
+				? self.pageFlip.getCurrentPageIndex()
+				: ( e.data != null ? e.data : 0 );
+			self._onPageChange( index );
 		} );
 
 		// Hide the static spine/gutter shadow while a page is folding or flipping
@@ -645,6 +665,7 @@
 		this.currentIndex = index;
 		this._resetZoom( index );
 		this._updateIndicator( index );
+		this.requestedPage = null;
 		this._renderAround( index );
 		this._announce( index );
 
@@ -660,9 +681,16 @@
 
 	FlipbookInstance.prototype._updateIndicator = function ( index ) {
 		// Reflect the current page in the input, unless the user is typing in it.
-		if ( this.pageInput && document.activeElement !== this.pageInput ) {
-			this.pageInput.value = String( index + 1 );
+		if ( ! this.pageInput || document.activeElement === this.pageInput ) {
+			return;
 		}
+
+		if ( this.requestedPage != null ) {
+			this.pageInput.value = String( Math.min( Math.max( this.requestedPage, 1 ), this.pageEls.length ) );
+			return;
+		}
+
+		this.pageInput.value = String( index + 1 );
 	};
 
 	FlipbookInstance.prototype._announce = function ( index ) {

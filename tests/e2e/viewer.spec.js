@@ -31,6 +31,21 @@ test.describe( 'Flipbook viewer', () => {
 		await expect( indicator ).toHaveText( first );
 	} );
 
+	test( 'typing a page number jumps to that page', async ( { page } ) => {
+		await page.goto( GOOD_PDF );
+
+		const indicator = page.getByText( PAGE_INDICATOR );
+		await expect( indicator ).toBeVisible();
+		const first = await indicator.textContent();
+
+		const pageInput = page.locator( '.arfb-flipbook__page-input' ).first();
+		await pageInput.fill( '3' );
+		await pageInput.press( 'Enter' );
+
+		await expect( indicator ).not.toHaveText( first );
+		await expect( page.getByText( /Page 3 of \d+/ ) ).toBeVisible();
+	} );
+
 	test( 'exposes the main controls with accessible names', async ( { page } ) => {
 		await page.goto( GOOD_PDF );
 		await expect( page.getByText( PAGE_INDICATOR ) ).toBeVisible();
