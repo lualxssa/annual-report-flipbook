@@ -50,7 +50,7 @@ Verify the contents after building:
 unzip -l annual-report-flipbook.zip
 ```
 
-## Cutting an official release (recommended, team-safe)
+## Cutting an official release 
 
 Releases are built by CI from a version tag, so everyone downloads the identical
 artifact:

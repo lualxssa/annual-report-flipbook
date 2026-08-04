@@ -1,6 +1,5 @@
 === Annual Report Flipbook ===
-Contributors: (your org)
-Tags: pdf, flipbook, accessibility, annual report, page flip
+Contributors: Alyssa Lu, Sim Yu Lau
 Requires at least: 6.0
 Tested up to: 6.7
 Requires PHP: 7.4
@@ -14,8 +13,7 @@ interactive page-flip viewer via a Gutenberg block or shortcode.
 == Description ==
 
 Annual Report Flipbook turns a PDF into an interactive, page-turning reading
-experience directly in the browser -- no server-side conversion, no
-third-party embed, and no premium plugin lock-in.
+experience directly in the browser.
 
 **How it works**
 
@@ -53,7 +51,15 @@ step of pulling in the PDF.js and StPageFlip library files.
 
 1. Follow `SETUP.md` to vendor the PDF.js and StPageFlip library files into
    `assets/vendor/`.
-2. Zip the plugin folder.
+2. Build the plugin zip:
+
+       npm run build:zip
+
+   This wraps `git archive`, so it packages the **last commit** rather than
+   your working tree -- commit first. Output is `annual-report-flipbook.zip`
+   in the project root, with the dev and test tooling stripped out. For a
+   tagged release, CI builds the zip from the tag and attaches it to the
+   GitHub Release; see `BUILD.md` for the full details.
 3. In wp-admin, go to Plugins -> Add New -> Upload Plugin, choose the zip,
    and activate.
 4. Go to Report Flipbook in the admin menu and drop in your PDF.
