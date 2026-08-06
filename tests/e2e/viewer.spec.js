@@ -5,7 +5,9 @@
 const { test, expect } = require( '@playwright/test' );
 
 const GOOD_PDF = '/preview.html?pdf=tests/fixtures/sample.pdf';
-const PAGE_INDICATOR = /Page \d+ of \d+/;
+// The viewer announces a lone cover as "Page 1 of 10" but an interior spread as
+// "Pages 2–3 of 10", so match both shapes.
+const PAGE_INDICATOR = /Pages? \d+(–\d+)? of \d+/;
 
 test.describe( 'Flipbook viewer', () => {
 	test( 'loads a PDF and shows page content', async ( { page } ) => {
@@ -43,7 +45,9 @@ test.describe( 'Flipbook viewer', () => {
 		await pageInput.press( 'Enter' );
 
 		await expect( indicator ).not.toHaveText( first );
-		await expect( page.getByText( /Page 3 of \d+/ ) ).toBeVisible();
+		await expect( pageInput ).toHaveValue( '3' );
+		// Page 3 sits on the 2-3 spread in landscape, or alone in portrait.
+		await expect( page.getByText( /(Pages 2–3|Page 3) of \d+/ ) ).toBeVisible();
 	} );
 
 	test( 'exposes the main controls with accessible names', async ( { page } ) => {

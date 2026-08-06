@@ -2,12 +2,13 @@
 
 This plugin loads two open-source JS libraries from its own `assets/vendor/`
 folder rather than a CDN (more reliable, works offline, no third-party
-tracking/availability risk on your site). They are **not included in this
-repo** — pull them in once via npm, using the exact steps below, then commit
-the resulting files to your plugin.
+tracking/availability risk on your site). Both are **already committed** to
+`assets/vendor/`, so a fresh clone runs as-is — there is no setup step
+before the plugin works.
 
-Do this from a machine with Node.js installed (this is a one-time build
-step; the WordPress site itself needs no Node.js).
+This document records where those files came from and which versions to use,
+so follow it when **upgrading** either library or re-vendoring from scratch.
+The steps need a machine with Node.js; the WordPress site itself never does.
 
 ## 1. PDF.js (Mozilla, Apache-2.0)
 

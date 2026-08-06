@@ -45,6 +45,7 @@ function arfb_enqueue_viewer_assets() {
 			'pdfWorkerSrc' => ARFB_PLUGIN_URL . 'assets/vendor/pdfjs/pdf.worker.min.js',
 			'i18n'         => array(
 				'pageOf'       => __( 'Page %1$d of %2$d', 'annual-report-flipbook' ),
+				'pagesOf'      => __( 'Pages %1$d–%2$d of %3$d', 'annual-report-flipbook' ),
 				'next'         => __( 'Next page', 'annual-report-flipbook' ),
 				'previous'     => __( 'Previous page', 'annual-report-flipbook' ),
 				'fullscreen'   => __( 'Toggle fullscreen', 'annual-report-flipbook' ),

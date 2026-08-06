@@ -694,12 +694,33 @@
 	};
 
 	FlipbookInstance.prototype._announce = function ( index ) {
-		if ( this.liveRegion ) {
-			var template = t.pageOf || 'Page %1$d of %2$d';
-			this.liveRegion.textContent = template
-				.replace( '%1$d', index + 1 )
-				.replace( '%2$d', this.pageEls.length );
+		if ( ! this.liveRegion ) {
+			return;
 		}
+
+		var total = this.pageEls.length;
+
+		// In landscape the viewer shows a two-page spread, so naming only the
+		// left page misleads: a reader who jumps to page 3 lands on the 2-3
+		// spread and would otherwise hear "Page 2 of 10". With showCover, the
+		// first and last pages stand alone, so only announce a spread when both
+		// of its pages are interior ones.
+		var orientation = ( this.pageFlip && typeof this.pageFlip.getOrientation === 'function' )
+			? this.pageFlip.getOrientation()
+			: 'landscape';
+		var isSpread = orientation !== 'portrait' && index >= 1 && index + 3 <= total;
+
+		if ( isSpread ) {
+			this.liveRegion.textContent = ( t.pagesOf || 'Pages %1$d–%2$d of %3$d' )
+				.replace( '%1$d', index + 1 )
+				.replace( '%2$d', index + 2 )
+				.replace( '%3$d', total );
+			return;
+		}
+
+		this.liveRegion.textContent = ( t.pageOf || 'Page %1$d of %2$d' )
+			.replace( '%1$d', index + 1 )
+			.replace( '%2$d', total );
 	};
 
 	/**
@@ -754,7 +775,7 @@
 
 		this.pdfDoc.getPage( pageNumber ).then( function ( page ) {
 			var baseViewport = page.getViewport( { scale: 1 } );
-			var renderScale = targetDeviceWidth / baseViewport.width;
+			var renderScale = targetDeviceWidth / baseViewport.width; // compute render scale to match the target device width
 			var viewport = page.getViewport( { scale: renderScale } );
 
 			// Keep the old canvas visible and render into a detached canvas first, then swap it in once painted.
@@ -767,7 +788,7 @@
 			page.render( {
 				canvasContext: canvas.getContext( '2d' ),
 				viewport: viewport,
-			} ).promise.then( function () {
+			} ).promise.then( function () { // remove any old canvas or text layer
 				var old = pageEl.querySelectorAll( 'canvas, .arfb-page__text-layer' );
 				for ( var k = 0; k < old.length; k++ ) {
 					old[ k ].remove();
@@ -780,7 +801,7 @@
 				// vs pdfjsLib.TextLayer) -- verify this against the exact version in
 				// assets/vendor/pdfjs before shipping.
 				if ( typeof window.pdfjsLib.renderTextLayer === 'function' ) {
-					page.getTextContent().then( function ( textContent ) {
+					page.getTextContent().then( function ( textContent ) { // extract the text content for the page and render it into a div overlay
 						var textLayerDiv = document.createElement( 'div' );
 						textLayerDiv.className = 'arfb-page__text-layer';
 						textLayerDiv.style.width = viewport.width + 'px';
