@@ -327,31 +327,13 @@
 	opacity: 0.85;
 }
 
-.arfb-flipbook__toc {
-	margin: 0 0 12px;
-}
-
-.arfb-flipbook__toc summary {
-	cursor: pointer;
-	font-weight: 600;
-	padding: 8px;
-}
-
-.arfb-flipbook__toc ul {
-	max-height: 240px;
-	overflow-y: auto;
-	margin: 0;
-	padding-left: 1.5em;
-}
 .arfb-flipbook__stage {
 	position: relative;
 	width: 100%;
 	box-sizing: border-box;   /* Side gutters box */
-	/* Extra bottom room so the floating control bar sits in the background strip
-	   below the book, not over the pages. */
-	padding: 19px 35px 60px;
-	background-color: #000;
-	border-radius: 0px;     
+	padding: 19px 35px 60px;      /********Update: changes to flipbook background*, used to be 0 64px // 24px 64px all black // 80px 160px not stretched enough *****/
+	background-color: #000;       /* black overlay */
+	border-radius: 0px;     /*round edges as 12px, nope maybe sharp looks better */
 	
 	background-image: url('https://dev.ontariocourts.ca/scj/wp-content/uploads/2026/07/scj.png');
 	background-size: cover;
@@ -362,8 +344,14 @@
 
 }
 
+/* .arfb-flipbook__pages--single{                 /**Update by Sim: Adding a front cover, not a 2 page spread 
+	width: 50%;
+	margin-left: auto;
+	margin-right: auto;
+ */ 
 
-.arfb-flipbook__pages--single::after {
+
+arfb-flipbook__pages--single::after {                 /**Update by Sim: hiding spine shading bar on front cover */
 	display: none;
 }
 
@@ -460,12 +448,74 @@
 	line-height: 1;
 	opacity: 0.2; /* text stays selectable/screen-reader-visible without visibly double-printing over the canvas */
 	transform-origin: 0 0;
+	z-index: 1;
 }
 
 .arfb-page__text-layer span {
 	position: absolute;
 	white-space: pre;
 	color: transparent;
+}
+
+/* --- Link annotations ------------------------------------------------- */
+
+/* Clickable links carried by the PDF itself: a contents page typeset inside
+   the report, cross-references, external URLs. PDF.js builds the elements
+   inside this layer; their geometry comes from the layer's --scale-factor and
+   the scale() transform set in flipbook.js. PDF.js's own pdf_viewer.css isn't
+   bundled, so these rules are ours. */
+.arfb-page__annotation-layer {
+	position: absolute;
+	top: 0;
+	left: 0;
+	transform-origin: 0 0;
+	/* Above the text layer. Both are appended from async callbacks that can
+	   finish in either order, and a transparent text span sitting over a link
+	   would take the click instead of the anchor. */
+	z-index: 2;
+	/* The layer covers the whole page, so it must not intercept anything --
+	   only the annotation rects inside it opt back in. */
+	pointer-events: none;
+}
+
+.arfb-page__annotation-layer section {
+	position: absolute;
+	pointer-events: auto;
+}
+
+/* Filling the rect matters for behaviour, not just looks: StPageFlip decides
+   whether a mousedown is a page-drag by reading the target's tag name and
+   letting <a>/<button> through, so a click landing on the <section> around a
+   smaller anchor would start a page turn instead of following the link. */
+.arfb-page__annotation-layer .linkAnnotation a {
+	display: block;
+	width: 100%;
+	height: 100%;
+	cursor: pointer;
+	border-radius: 2px;
+	background-color: transparent;
+	transition: background-color 0.12s ease;
+}
+
+/* Invisible at rest so the report still looks as it was designed; a hint on
+   hover and on keyboard focus so the links are discoverable. PDF.js puts a
+   tabindex on each annotation, so they join the tab order for free. */
+.arfb-page__annotation-layer .linkAnnotation a:hover,
+.arfb-page__annotation-layer .linkAnnotation a:focus-visible {
+	background-color: color-mix(in srgb, var(--arfb-accent) 18%, transparent);
+}
+
+/* Browsers without color-mix() still get a visible hover. */
+@supports not (background-color: color-mix(in srgb, red 50%, transparent)) {
+	.arfb-page__annotation-layer .linkAnnotation a:hover,
+	.arfb-page__annotation-layer .linkAnnotation a:focus-visible {
+		background-color: rgba(37, 99, 235, 0.18);
+	}
+}
+
+.arfb-page__annotation-layer section:focus-visible {
+	outline: 2px solid var(--arfb-accent);
+	outline-offset: 1px;
 }
 
 /* Respect reduced-motion preferences: StPageFlip's own animation duration is

@@ -41,7 +41,7 @@ Included: `annual-report-flipbook.php`, `readme.txt`, `includes/`, and `assets/`
 
 Excluded (via `export-ignore` in `.gitattributes`): all dev/test tooling —
 `tests/`, `package.json`, `playwright.config.js`, `composer.json`,
-`phpunit.xml.dist`, `.wp-env.json`, `.github/`, the standalone `preview.html` /
+`phpunit.xml.dist`, `.wp-env.json`, the standalone `preview.html` /
 `admin-preview.html`, and the dev docs (`SETUP.md`, `TESTING.md`, `BUILD.md`).
 
 Verify the contents after building:
@@ -50,10 +50,9 @@ Verify the contents after building:
 unzip -l annual-report-flipbook.zip
 ```
 
-## Cutting an official release 
+## Cutting an official release
 
-Releases are built by CI from a version tag, so everyone downloads the identical
-artifact:
+There is **no CI** — releases are built by hand:
 
 1. Bump the version in **two** places: `Version:` in `annual-report-flipbook.php`
    and `Stable tag:` in `readme.txt`.
@@ -63,12 +62,15 @@ artifact:
    git tag v1.0.1
    git push && git push --tags
    ```
-3. The **Build plugin zip** GitHub Action (`.github/workflows/build-plugin.yml`)
-   runs on the `v*` tag, builds the zip from that exact tag, and attaches it to
-   the GitHub Release. That attached zip is the authoritative download.
+3. Build the zip from that tag and distribute it however the project is
+   currently hosting downloads:
+   ```
+   git archive --format=zip --prefix=annual-report-flipbook/ -o annual-report-flipbook.zip v1.0.1
+   ```
 
-You can also trigger the workflow manually (workflow_dispatch) to get the zip as
-a downloadable build artifact without cutting a release.
+Because the zip is built from a tag rather than a working tree, anyone running
+that command against the same tag gets a byte-identical package — the tag is
+what makes a release reproducible, not the tooling around it.
 
 ## Installing the built zip
 

@@ -38,6 +38,8 @@
 		},
 
 		edit: function ( props ) {
+			// The editor UI stores the chosen PDF as an attachment ID. The server-side
+			// renderer resolves the real URL when the block is published.
 			var attributes = props.attributes;
 			var setAttributes = props.setAttributes;
 			var blockProps = useBlockProps();
@@ -106,6 +108,8 @@
 			);
 
 			var body;
+			// If no PDF has been chosen yet, show a simple placeholder and let the
+			// editor pick one from the Media Library.
 			if ( ! attributes.attachmentId ) {
 				body = el(
 					Placeholder,

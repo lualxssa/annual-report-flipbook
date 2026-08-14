@@ -9,7 +9,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 /**
- * Register the admin menu page.
+ * Add "Report Flipbook" to the WordPress admin menu.
+ *
+ * The 'upload_files' argument is the permission needed to see it. That's the
+ * same permission WordPress uses for adding media, which fits: this screen only
+ * uploads a PDF and remembers which one to show. Requiring full administrator
+ * rights would stop editors doing their own job.
  */
 function arfb_register_admin_menu() {
 	add_menu_page(
@@ -28,6 +33,9 @@ add_action( 'admin_menu', 'arfb_register_admin_menu' );
  * Render the admin page markup. All behavior is handled by admin-uploader.js.
  */
 function arfb_render_admin_page() {
+	// Checked again even though the menu already requires this permission.
+	// Hiding a menu item only hides it — someone can still type the URL — so the
+	// page itself has to check as well.
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_die( esc_html__( 'You do not have permission to upload files.', 'annual-report-flipbook' ) );
 	}
@@ -92,6 +100,17 @@ function arfb_admin_enqueue_assets( $hook ) {
 		ARFB_VERSION
 	);
 
+	// Addresses and security tokens the uploader script needs.
+	//
+	// There are two of each because the screen does two different jobs through
+	// two different WordPress systems. Uploading the file goes to the built-in
+	// media endpoint (restUrl); remembering which PDF is the default goes to our
+	// own handler further down this file (ajaxUrl). Each needs its own token.
+	//
+	// A "nonce" is a short-lived token proving the request came from a form we
+	// generated, rather than from another site making your browser click things
+	// behind your back. It proves origin, not permission — the handler still has
+	// to check the user is allowed to do this.
 	wp_localize_script(
 		'arfb-admin-uploader',
 		'arfbAdmin',
@@ -112,17 +131,41 @@ function arfb_admin_enqueue_assets( $hook ) {
 add_action( 'admin_enqueue_scripts', 'arfb_admin_enqueue_assets' );
 
 /**
- * AJAX: persist the chosen attachment as the default report.
+ * Handles the "Save as the default report" button.
+ *
+ * Saves which PDF the site should show when a shortcode or block doesn't name
+ * one itself. Called by admin-uploader.js in the background, so it replies with
+ * JSON rather than a page.
+ *
+ * Anything reachable over the network has to assume the caller is hostile, so
+ * this checks three separate things before saving, in order:
+ *
+ *   1. the token — did this come from our screen?
+ *   2. the permission — is this user allowed to?
+ *   3. the value itself — is it really a PDF in the media library?
+ *
+ * All three matter. The first two can both pass and the request still be
+ * nonsense, because the id arrives from the browser and anyone can change it
+ * before it's sent. Without check 3 someone could point the site's report at
+ * any file at all.
  */
 function arfb_ajax_save_attachment() {
+	// 1. Stops another site making your browser send this request while you're
+	// logged in. Ends the request straight away if the token is wrong.
 	check_ajax_referer( 'arfb_save_attachment', 'nonce' );
 
+	// 2. A valid token only proves where the request came from, not that this
+	// person is allowed to change the site's report. Check that separately.
 	if ( ! current_user_can( 'upload_files' ) ) {
 		wp_send_json_error( array( 'message' => __( 'Permission denied.', 'annual-report-flipbook' ) ), 403 );
 	}
 
+	// absint() forces this to a whole positive number, so nothing odd reaches
+	// the database lookup below.
 	$attachment_id = isset( $_POST['attachment_id'] ) ? absint( $_POST['attachment_id'] ) : 0;
 
+	// 3. Confirm it's a real media item and really a PDF, rather than trusting
+	// what the browser sent.
 	if ( ! $attachment_id || 'application/pdf' !== get_post_mime_type( $attachment_id ) ) {
 		wp_send_json_error( array( 'message' => __( 'Invalid attachment.', 'annual-report-flipbook' ) ), 400 );
 	}

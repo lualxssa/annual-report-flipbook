@@ -41,8 +41,8 @@ Download PDF link is the better path, and it is always present.
 
 = For site owners =
 
-1. Get `annual-report-flipbook.zip` -- from the project's GitHub Releases
-   page, or from whoever maintains the site.
+1. Get `annual-report-flipbook.zip` from whoever maintains the site, or build
+   it yourself from the source repository (see the developer section below).
 2. In wp-admin, go to **Plugins -> Add New -> Upload Plugin**, choose the
    zip, and click **Install Now**, then **Activate**.
 3. Go to **Report Flipbook** in the admin menu and drop in your PDF.
@@ -83,9 +83,8 @@ working tree -- commit first, or you will ship an older state. Output is
 `annual-report-flipbook.zip` in the project root, with the dev and test
 tooling stripped out via the `export-ignore` rules in `.gitattributes`.
 
-For a tagged release, CI builds the zip from the tag and attaches it to the
-GitHub Release; that artifact is the authoritative download. `BUILD.md` has
-the full process.
+There is no automated build. For a tagged release, build the zip from the tag
+by hand -- `BUILD.md` has the full process.
 
 = Running the tests =
 

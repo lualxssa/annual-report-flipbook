@@ -1,7 +1,7 @@
 /**
  * Frontend + admin-preview flipbook viewer.
- * Renders a PDF (via PDF.js) into page elements and drives page-turn
- * animation + UI chrome (via StPageFlip). Exposes window.ArfbFlipbook
+ * Renders a PDF (via PDF.js) into page elements and creates page-turn
+ * animation + UI chrome ( StPageFlip). Exposes window.ArfbFlipbook
  * so the admin uploader can (re)initialize a preview after upload.
  *
  * Requires, loaded before this file:
@@ -12,14 +12,28 @@
 ( function ( window, document ) {
 	'use strict';
 
+	// WordPress fills in this object for us — see wp_localize_script() in
+	// includes/block.php. It carries the PDF worker path and the button labels,
+	// already translated. "t" is just a short name for those labels.
+	//
+	// preview.html sends an empty list of labels, so every label below also has a
+	// plain English default written after "||". If you reword one, reword both.
 	var config = window.arfbConfig || { pdfWorkerSrc: '', i18n: {} };
 	var t = config.i18n || {};
 
+	// PDF.js does its heavy work in a background thread (a "web worker") so the
+	// page stays responsive. 
+	// Pass PDF.js the path to the worker file. Otherwise, PDF.js does everything on the main
+	// thread instead, which makes the page-turn animation stutter.
 	if ( window.pdfjsLib && config.pdfWorkerSrc ) {
 		window.pdfjsLib.GlobalWorkerOptions.workerSrc = config.pdfWorkerSrc;
 	}
 
-	var PAGES_AROUND_CURRENT = 2; // how many spreads either side of the current one get rendered eagerly
+	// TUNING CONSTANTS: These constants are tuned for the StPageFlip defaults
+
+	// Pre-render this number of pages before and after the current page 
+	// makes page turns feel smooth
+	var PAGES_AROUND_CURRENT = 2;
 
 	// Upper bound on a single page's rendered canvas width, in device pixels.
 	// Pages are rendered high-res and downscaled by CSS so they stay crisp when
@@ -32,12 +46,17 @@
 	// larger canvases is reclaimed when the zoom is reset).
 	var MAX_RENDER_WIDTH_ZOOM = 3000;
 
-	// Maximum magnification for the zoom gesture and the +/- buttons, and the
-	// multiplier applied per button click.
+	// Maximum magnification for the zoom gesture and the +/- buttons
+	// Each zoom button increases/decreases by ZOOM_STEP times
 	var MAX_ZOOM = 4;
 	var ZOOM_STEP = 1.5;
 
+
+	// defines the layers that need to be cleaned up when a page is re-rendered
+	var STALE_LAYERS = 'canvas, .arfb-page__text-layer, .arfb-page__annotation-layer';
+
 	// Build a small inline SVG icon from a single path, inheriting currentColor.
+	// SVG icon helper used in the toolbar and nav buttons
 	function arfbIcon( path ) {
 		return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
 			'<path d="' + path + '" fill="none" stroke="currentColor" stroke-width="2" ' +
@@ -45,7 +64,98 @@
 	}
 
 	/**
-	 * One instance per .arfb-flipbook container.
+	 * Keep only the annotations whose target is inside this document.
+	 *
+	 * A contents page printed in the PDF navigates by "destination" (dest) or by
+	 * a named action such as NextPage — both resolved against the document, both
+	 * kept. Anything carrying a URL is a jump out of the report: web addresses,
+	 * mailto:, tel:, and also javascript:, which the annotation layer would
+	 * otherwise place in the host page's DOM. Those are dropped here so no <a>
+	 * is created for them at all, rather than rendered and left inert — an
+	 * anchor with no href still shows a pointer cursor and swallows the click
+	 * that would have turned the page.
+	 *
+	 * unsafeUrl is checked alongside url because PDF.js only populates url once
+	 * a target has passed its own validation; the raw string lands in unsafeUrl
+	 * either way, so an external link rejected by PDF.js is still an external
+	 * link and still goes.
+	 */
+	function arfbInternalOnly( annotation ) {
+		if ( ! annotation ) {
+			return false;
+		}
+		if ( annotation.url || annotation.unsafeUrl ) {
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 * PDF.js draws link annotations but delegates every navigation decision to a
+	 * "link service". The full implementation lives in PDF.js's own web viewer
+	 * bundle (pdf_viewer.js), which we don't ship -- so this is just the part of
+	 * that interface the annotation layer actually calls, pointed at the
+	 * flipbook's page-turn animation instead of at scroll position.
+	 */
+	function arfbLinkService( instance ) {
+		return {
+			// PDF.js assigns this to href, then attaches its own click handler
+			// that calls goToDestination() and returns false. No URL fragment
+			// would mean anything here, so it stays empty and the handler does
+			// all the work.
+			getDestinationHash: function () {
+				return '';
+			},
+
+			getAnchorUrl: function () {
+				return '';
+			},
+
+			goToDestination: function ( dest ) {
+				return instance._goToDest( dest );
+			},
+
+			goToPage: function ( pageNumber ) {
+				if ( instance.pageFlip ) {
+					instance.pageFlip.flip( pageNumber - 1 ); // PDF page numbers are 1-based
+				}
+			},
+
+			// Page-navigation buttons drawn inside the PDF itself.
+			executeNamedAction: function ( action ) {
+				if ( ! instance.pageFlip ) {
+					return;
+				}
+				if ( action === 'NextPage' ) {
+					instance.pageFlip.flipNext();
+				} else if ( action === 'PrevPage' ) {
+					instance.pageFlip.flipPrev();
+				} else if ( action === 'FirstPage' ) {
+					instance.pageFlip.flip( 0 );
+				} else if ( action === 'LastPage' ) {
+					instance.pageFlip.flip( instance.pageEls.length - 1 );
+				}
+			},
+
+			// Optional-content group toggles. The viewer has no layers panel, so
+			// there is no visibility state to change.
+			executeSetOCGState: function () {},
+
+			// Called for links that point outside the document. This viewer only
+			// honours links that navigate within the report (a contents page and
+			// the like), so external ones are never given an href -- they stay
+			// visible as printed, but inert. _renderAnnotations already drops
+			// them before they reach the DOM; this is the second line of defence,
+			// so no code path can turn a URL out of the PDF into a live link.
+			addLinkAttributes: function () {},
+		};
+	}
+
+	/**
+	 * One instance is created for each flipbook on the page.
+	 *
+	 * The container is the empty <div> WordPress puts on the page. Which PDF to
+	 * show is read off it as a data-pdf-url attribute.
 	 */
 	function FlipbookInstance( container ) {
 		this.container = container;
@@ -53,6 +163,13 @@
 		this.title = container.getAttribute( 'data-title' ) || '';
 		this.pdfDoc = null;
 		this.pageFlip = null;
+		// The page number you typed into the toolbar box. We only hang onto it
+		// until the flip finishes.
+		//
+		// Why we need it: the book shows two pages side by side, and StPageFlip
+		// only tells us the left one. Type 3 and it lands on the 2-3 pair, then
+		// reports "2" — so the box you just typed 3 into would flip back to 2 by
+		// itself. Remembering your number here stops that happening.
 		this.requestedPage = null;
 		this.pageEls = [];
 		this.renderedPages = {};
@@ -78,13 +195,15 @@
 		this.container.appendChild( status );
 		this.statusEl = status;
 
-		// Live region for page-change announcements (screen readers).
+		// Live region for screen reader announcements.
+		//  See _announce() below for what goes in it.
 		var live = document.createElement( 'div' );
 		live.className = 'arfb-visually-hidden';
 		live.setAttribute( 'aria-live', 'polite' );
 		this.container.appendChild( live );
 		this.liveRegion = live;
 
+		// arrow keys, Home and End turn pages
 		this.container.addEventListener( 'keydown', function ( e ) {
 			if ( ! self.pageFlip ) {
 				return;
@@ -113,7 +232,15 @@
 			return;
 		}
 
-		// Load the PDF document and render the first page shell.
+		// load the pdf 
+		//   1. download and open the PDF
+		//   2. grab page 1 to measure its shape (tall or wide)
+		//   3. build an empty placeholder for every page, all that same shape
+		//   4. add the table of contents, if the PDF has one
+		//   5. hand the placeholders to StPageFlip, which turns them into a book
+		//
+		// measure page 1 first so all the placeholders are the right size
+		// before the book is built. 
 		window.pdfjsLib
 			.getDocument( this.pdfUrl )
 			.promise.then( function ( pdfDoc ) {
@@ -124,7 +251,6 @@
 			} )
 			.then( function ( ctx ) {
 				self._buildPageShells( ctx.firstPage );
-				return self._loadOutline();
 			} )
 			.then( function () {
 				self._initPageFlip();
@@ -136,6 +262,9 @@
 			} );
 	};
 
+	/**
+	 * Error displaying the pdf. Show a message and a download link instead of the book.
+	 */
 	FlipbookInstance.prototype._showError = function ( err ) {
 		if ( err ) {
 			// eslint-disable-next-line no-console
@@ -143,7 +272,8 @@
 		}
 		this.container.classList.remove( 'arfb-flipbook--loading' );
 		this.container.classList.add( 'arfb-flipbook--error' );
-		// fallback message and a link to download the PDF.
+
+		// fallback message and a link to download the pdf
 		this.container.innerHTML =
 			'<p class="arfb-flipbook__status">' + ( t.loadError || 'Sorry, the report could not be loaded.' ) + '</p>' +
 			'<p><a href="' + this.pdfUrl + '">' + ( t.download || 'Download PDF' ) + '</a></p>' +
@@ -155,6 +285,8 @@
 	 * sized to the first page's aspect ratio. Actual canvas + text-layer content
 	 * is filled in lazily by _renderPage() as the reader approaches each page.
 	 */
+	// Build the page placeholders first, then fill each one lazily as the reader
+	// gets close to it. That keeps the initial load fast for long documents.
 	FlipbookInstance.prototype._buildPageShells = function ( firstPage ) {
 		var self = this;
 		var viewport = firstPage.getViewport( { scale: 1 } );
@@ -257,15 +389,24 @@
 		pageTotal.className = 'arfb-flipbook__page-total';
 		pageTotal.textContent = '/ ' + this.pageEls.length;
 
+		// Go to whatever page number is in the box. Numbers outside the document
+		// get pulled back into range, so typing 999 takes you to the last page
+		// rather than doing nothing.
 		function jumpToInput() {
 			var n = parseInt( pageInput.value, 10 );
 			if ( isNaN( n ) || ! self.pageFlip ) {
 				self.requestedPage = null;
-				self._updateIndicator( self.currentIndex || 0 ); // restore
+				self._updateIndicator( self.currentIndex || 0 ); // put the real page number back
 				return;
 			}
 			self.requestedPage = Math.min( Math.max( n, 1 ), self.pageEls.length );
-			var target = self.requestedPage - 1; // internal page index
+			// Page numbers start at 1 for readers, but index 0 in the code.
+			var target = self.requestedPage - 1;
+
+			// StPageFlip has called this method different things in different
+			// versions, so we check each name and use whichever one this copy has.
+			// flip() is the last resort: every version has it, but it jumps
+			// straight to the page with no turning animation.
 			if ( typeof self.pageFlip.turnToPage === 'function' ) {
 				self.pageFlip.turnToPage( target );
 			} else if ( typeof self.pageFlip.flipToPage === 'function' ) {
@@ -316,45 +457,35 @@
 		this.container.appendChild( toolbar );
 	};
 
-	FlipbookInstance.prototype._loadOutline = function () {        //embedded books in PDF
+	/**
+	 * Turn a PDF destination into a page turn, for the link annotations on a
+	 * contents page printed inside the document.
+	 *
+	 * A destination is either an explicit array whose first entry is a reference
+	 * to a page object, or the name of a destination that has to be looked up in
+	 * the document first. Neither one is a page number, hence getPageIndex().
+	 */
+	FlipbookInstance.prototype._goToDest = function ( dest ) {
 		var self = this;
-		return this.pdfDoc.getOutline().then( function ( outline ) {
-			if ( ! outline || ! outline.length ) {
+		var resolved = typeof dest === 'string'
+			? this.pdfDoc.getDestination( dest )
+			: Promise.resolve( dest );
+
+		return resolved.then( function ( target ) {
+			if ( ! target || ! target.length ) {
 				return;
 			}
-			self._buildToc( outline );
-		} ).catch( function () {
-			// Outline is optional; ignore failures.
-		} );
-	};
-
-	FlipbookInstance.prototype._buildToc = function ( outline ) {
-		var self = this;
-		var toc = document.createElement( 'details' );
-		toc.className = 'arfb-flipbook__toc';
-
-		var summary = document.createElement( 'summary' );
-		summary.textContent = t.tableOfContents || 'Table of contents';
-		toc.appendChild( summary );
-
-		var list = document.createElement( 'ul' );
-		outline.forEach( function ( item ) {
-			var li = document.createElement( 'li' );
-			var link = document.createElement( 'a' );
-			link.href = '#';
-			link.textContent = item.title;
-			link.addEventListener( 'click', function ( e ) {
-				e.preventDefault();
-				self.pdfDoc.getPageIndex( item.dest ? item.dest[ 0 ] : item ).then( function ( index ) {
-					self.pageFlip && self.pageFlip.flip( index );
-				} ).catch( function () {} );
+			return self.pdfDoc.getPageIndex( target[ 0 ] ).then( function ( index ) {
+				// Landing on a new page still magnified and panned somewhere
+				// else is disorienting, so drop back to the full spread first.
+				self._resetZoom( index );
+				if ( self.pageFlip ) {
+					self.pageFlip.flip( index );
+				}
 			} );
-			li.appendChild( link );
-			list.appendChild( li );
+		} ).catch( function () {
+			// A destination pointing at nothing should do nothing, not throw.
 		} );
-		toc.appendChild( list );
-
-		this.container.insertBefore( toc, this.stage );
 	};
 
 	FlipbookInstance.prototype._initPageFlip = function () {
@@ -392,6 +523,10 @@
 
 		this.pageFlip.loadFromHTML( this.pageEls );
 
+		// Runs every time a page is turned. We ask StPageFlip where it ended up
+		// rather than reading the number off the event, because the event
+		// sometimes reports the page that was turned instead of the one now on
+		// screen — which would leave the toolbar showing the wrong number.
 		this.pageFlip.on( 'flip', function ( e ) {
 			var index = typeof self.pageFlip.getCurrentPageIndex === 'function'
 				? self.pageFlip.getCurrentPageIndex()
@@ -583,7 +718,7 @@
 				var n = pages[ i ];
 				var pageEl = this.pageEls[ n - 1 ];
 				if ( pageEl ) {
-					var old = pageEl.querySelectorAll( 'canvas, .arfb-page__text-layer' );
+					var old = pageEl.querySelectorAll( STALE_LAYERS );
 					for ( var k = 0; k < old.length; k++ ) {
 						old[ k ].remove();
 					}
@@ -630,13 +765,13 @@
 	 * Keep the spread fitting inside the viewport when fullscreen. At full
 	 * screen width StPageFlip would derive a spread height taller than the
 	 * screen, so we cap the viewer width to whatever keeps the height within
-	 * the space left below the toolbar/TOC, then let StPageFlip re-measure.
+	 * the space left below the toolbar, then let StPageFlip re-measure.
 	 */
 	FlipbookInstance.prototype._onFullscreenChange = function () {
 		var isFullscreen = document.fullscreenElement === this.container;
 
 		if ( isFullscreen ) {
-			// Space above the pages (toolbar, TOC, etc.) plus a little breathing room.
+			// Space above the pages (the toolbar) plus a little breathing room.
 			var chromeHeight = this.stage.offsetTop;
 			var availableHeight = this.container.clientHeight - chromeHeight - 12;
 			// The stage's side gutters (room for the arrows) don't hold the book,
@@ -661,22 +796,17 @@
 		} );
 	};
 
+
 	FlipbookInstance.prototype._onPageChange = function ( index ) {
 		this.currentIndex = index;
-		this._resetZoom( index );
-		this._updateIndicator( index );
+		this._resetZoom( index );       // a page you just turned to always starts unzoomed
+		this._updateIndicator( index ); // this still needs requestedPage, so clear it after
 		this.requestedPage = null;
-		this._renderAround( index );
-		this._announce( index );
+		this._renderAround( index );    // draw the neighbouring pages, ready for the next flip
+		this._announce( index );        // tell screen readers where we are
 
-
-		/*flipbook front cover */
 		var isPageSingle = ( index === 0 ) || ( index === this.pageEls.length - 1 );
 		this.viewerEl.classList.toggle( 'arfb-flipbook__pages--single', isPageSingle );
-
-
-
-		
 	};
 
 	FlipbookInstance.prototype._updateIndicator = function ( index ) {
@@ -788,13 +918,39 @@
 			page.render( {
 				canvasContext: canvas.getContext( '2d' ),
 				viewport: viewport,
-			} ).promise.then( function () { // remove any old canvas or text layer
-				var old = pageEl.querySelectorAll( 'canvas, .arfb-page__text-layer' );
+			} ).promise.then( function () { // remove the old canvas and its overlays
+				var old = pageEl.querySelectorAll( STALE_LAYERS );
 				for ( var k = 0; k < old.length; k++ ) {
 					old[ k ].remove();
 				}
 				pageEl.appendChild( canvas );
 
+				// Both overlays below are built at the canvas's high-res scale and
+				// then scaled down to the size the page is displayed at, so they
+				// stay aligned with what's on screen.
+				//
+				// Scaled per axis, not uniformly, because the canvas itself is
+				// not displayed at the PDF's aspect ratio: StPageFlip lays out
+				// every page at the fixed size configured in _initPageFlip, and
+				// the `.arfb-page canvas` rule stretches the bitmap to fill it.
+				// A Letter-sized page in a taller page box is stretched ~8%
+				// vertically, so an overlay scaled by width alone drifts further
+				// off the further down the page you look — which for a link is
+				// the difference between hitting it and missing it.
+				var displayScale = ( pageEl.clientWidth || displayWidth ) / viewport.width;
+				var displayScaleY = pageEl.clientHeight
+					? pageEl.clientHeight / viewport.height
+					: displayScale;
+				var overlayTransform = 'scale(' + displayScale + ',' + displayScaleY + ')';
+
+				// Clickable links. Stacked above the text layer by CSS z-index,
+				// not by append order — both are appended from async callbacks
+				// that can land in either order, and a text span on top of an
+				// anchor would swallow the click.
+				self._renderAnnotations( page, viewport, pageEl, overlayTransform );
+
+				// PDF.js exposes the text separately from the rendered bitmap, so we
+				// create a DOM text layer here for selectable text and screen readers.
 				// Selectable/screen-reader text layer, kept in sync with the PDF.js
 				// version pinned in assets/vendor/pdfjs. The text-layer entry point
 				// has moved across pdf.js releases (TextLayerBuilder vs renderTextLayer
@@ -809,11 +965,7 @@
 						// PDF.js 3.x positions/sizes the text spans relative to this
 						// CSS variable and errors to the console if it is missing.
 						textLayerDiv.style.setProperty( '--scale-factor', String( viewport.scale ) );
-						// The text layer is rendered at the same high-res scale as the
-						// canvas, then scaled down to the page's current display size so
-						// the selectable text stays aligned with what's shown.
-						var displayScale = ( pageEl.clientWidth || displayWidth ) / viewport.width;
-						textLayerDiv.style.transform = 'scale(' + displayScale + ')';
+						textLayerDiv.style.transform = overlayTransform;
 						pageEl.appendChild( textLayerDiv );
 
 						window.pdfjsLib.renderTextLayer( {
@@ -835,7 +987,72 @@
 	};
 
 	/**
-	 * Public API.
+	 * Overlay a page's link annotations as real <a> elements, so a contents page
+	 * printed inside the PDF becomes clickable and jumps the book to the right
+	 * spread. Without this those links are just pixels on the canvas.
+	 *
+	 * Only links that stay inside the report are honoured. See arfbInternalOnly
+	 * below for why external ones are dropped rather than rendered.
+	 *
+	 * PDF.js positions each annotation against the render viewport, so the layer
+	 * is built at the canvas's scale and then brought down to display size by the
+	 * same transform as the text layer — which is what keeps the click targets
+	 * over the words they belong to, at any zoom level.
+	 */
+	FlipbookInstance.prototype._renderAnnotations = function ( page, viewport, pageEl, overlayTransform ) {
+		var self = this;
+
+		// Missing from older PDF.js builds, same caveat as the text layer above.
+		if ( typeof window.pdfjsLib.AnnotationLayer !== 'function' ) {
+			return;
+		}
+
+		page.getAnnotations( { intent: 'display' } ).then( function ( all ) {
+			if ( ! all || ! all.length ) {
+				return;
+			}
+
+			var annotations = all.filter( arfbInternalOnly );
+
+			// Most pages of a report have no internal links, and an empty overlay
+			// would still sit on top of the canvas.
+			if ( ! annotations.length ) {
+				return;
+			}
+
+			var layerDiv = document.createElement( 'div' );
+			// PDF.js styles the elements it creates off the annotationLayer
+			// class; the arfb- one is ours, for positioning and teardown.
+			layerDiv.className = 'annotationLayer arfb-page__annotation-layer';
+			// PDF.js sizes the layer and everything inside it in terms of this
+			// variable, so it has to be set before render() runs.
+			layerDiv.style.setProperty( '--scale-factor', String( viewport.scale ) );
+			layerDiv.style.transform = overlayTransform;
+			pageEl.appendChild( layerDiv );
+
+			new window.pdfjsLib.AnnotationLayer( {
+				div: layerDiv,
+				page: page,
+				viewport: viewport,
+				annotationCanvasMap: null,
+			} ).render( {
+				annotations: annotations,
+				linkService: arfbLinkService( self ),
+				// Defaults to true. A report is for reading, so any form fields
+				// stay as they were printed rather than becoming live inputs.
+				renderForms: false,
+			} ).catch( function () {
+				// One unrenderable annotation shouldn't leave a half-built
+				// overlay intercepting clicks.
+				layerDiv.remove();
+			} );
+		} ).catch( function () {
+			// Annotations are optional; a page without them still reads fine.
+		} );
+	};
+
+	/**
+	 * Public API
 	 */
 	var ArfbFlipbook = {
 		instances: {},
@@ -850,7 +1067,6 @@
 			return instance;
 		},
 
-		/** Re-point an already-initialized container at a new PDF (used by the admin preview). */
 		reload: function ( container, pdfUrl ) {
 			container.arfbInitialized = false;
 			container.setAttribute( 'data-pdf-url', pdfUrl );
