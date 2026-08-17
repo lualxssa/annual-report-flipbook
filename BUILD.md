@@ -50,9 +50,6 @@ Verify the contents after building:
 unzip -l annual-report-flipbook.zip
 ```
 
-## Cutting an official release
-
-There is **no CI** — releases are built by hand:
 
 1. Bump the version in **two** places: `Version:` in `annual-report-flipbook.php`
    and `Stable tag:` in `readme.txt`.

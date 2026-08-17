@@ -83,9 +83,6 @@ working tree -- commit first, or you will ship an older state. Output is
 `annual-report-flipbook.zip` in the project root, with the dev and test
 tooling stripped out via the `export-ignore` rules in `.gitattributes`.
 
-There is no automated build. For a tagged release, build the zip from the tag
-by hand -- `BUILD.md` has the full process.
-
 = Running the tests =
 
     npm run test:e2e     Playwright: viewer behaviour, via preview.html.

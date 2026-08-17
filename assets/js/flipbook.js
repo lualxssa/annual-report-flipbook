@@ -25,7 +25,7 @@
 
 	// WordPress fills in this object for us — see wp_localize_script() in
 	// includes/block.php. It carries the PDF worker path and the button labels,
-	// already translated. "t" is just a short name for those labels.
+	// already translated. t refers to the mapping of label keys to translated strings
 	//
 	// preview.html sends an empty list of labels, so every label below also has a
 	// plain English default written after "||". If you reword one, reword both.
