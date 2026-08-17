@@ -53,6 +53,10 @@ function arfb_enqueue_viewer_assets() {
 				'tableOfContents' => __( 'Table of contents', 'annual-report-flipbook' ),
 				'loading'      => __( 'Loading report…', 'annual-report-flipbook' ),
 				'loadError'    => __( 'Sorry, the report could not be loaded.', 'annual-report-flipbook' ),
+				// Shown under the download link on the error screen. Kept generic so it
+				// is correct whichever PDF the site has uploaded — the link above it
+				// already points at the file itself.
+				'accessibleNote' => __( 'To view an accessible version of the report, download the PDF using the link above.', 'annual-report-flipbook' ),
 			),
 		)
 	);

@@ -9,7 +9,7 @@
  *   - StPageFlip browser build   -> window.St.PageFlip
  *   - arfbConfig (wp_localize_script): { pdfWorkerSrc, i18n }
  *
- * Structure — five classes, each owning one job:
+ * Classes:
  *   ZoomController  zoom/pan state and the pointer gestures that drive them
  *   PageRenderer    PDF page -> canvas, at the right resolution, lazily
  *   LinkNavigator   in-document links: filtering, the PDF.js link service
@@ -64,7 +64,7 @@
 
 	// Minimum gap between two wheel-driven page turns, so one flick of a
 	// trackpad doesn't fire a dozen flips.
-	const WHEEL_FLIP_COOLDOWN = 450;
+	const WHEEL_FLIP_COOLDOWN = 300; // ms
 
 	// How long the zoom gesture has to be still before we re-render the visible
 	// pages at the magnified resolution.
@@ -78,20 +78,32 @@
 	 * one particular render scale, so they have to go together — a leftover
 	 * overlay sits misaligned over the new canvas, and for the annotation layer
 	 * that means invisible click targets in the wrong places.
+	 *
+	 * @param {HTMLElement} pageEl - The page shell to strip.
+	 * @returns {void}
 	 */
 	const removeStaleLayers = ( pageEl ) => {
 		pageEl.querySelectorAll( STALE_LAYERS ).forEach( ( el ) => el.remove() );
 	};
 
-	// Build a small inline SVG icon from a single path, inheriting currentColor.
-	// SVG icon helper used in the toolbar and nav buttons
+	/**
+	 * Build a small inline SVG icon from a single path, inheriting currentColor.
+	 * SVG icon helper used in the toolbar and nav buttons.
+	 *
+	 * @param {string} path - The `d` attribute for the icon's path.
+	 * @param {number} [strokeWidth=2] - Stroke width, in viewBox units.
+	 * @returns {string} Markup for an <svg> element, ready to assign to innerHTML.
+	 */
 	const arfbIcon = ( path, strokeWidth = 2 ) =>
 		`<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">` +
 		`<path d="${ path }" fill="none" stroke="currentColor" stroke-width="${ strokeWidth }" ` +
 		`stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 	/**
-	 * Filter annotations whose target is inside this document.
+	 * Filters outexternal links. 
+	 * 
+	 * Takes in a PDF.js annotation object and returns true if it is an internal link 
+	 * (dest or named action) or false if it is an external link (url or unsafeUrl).
 	 *
 	 * A contents page printed in the PDF navigates by "destination" (dest) or by
 	 * a named action such as NextPage — both resolved against the document, both
@@ -106,6 +118,9 @@
 	 * a target has passed its own validation; the raw string lands in unsafeUrl
 	 * either way, so an external link rejected by PDF.js is still an external
 	 * link and still goes.
+	 *
+	 * @param {object} annotation - A PDF.js annotation object.
+	 * @returns {boolean} True to keep the annotation, false to drop it.
 	 */
 	const arfbInternalOnly = ( annotation ) => {
 		if ( ! annotation ) {
@@ -118,7 +133,7 @@
 	};
 
 	/**
-	 * Zoom, pan, and the pointer gestures that drive them.
+	 * Handles zoom, pan, and the pointer gestures that drive them.
 	 *
 	 * Owns the transform applied to the pages element and nothing else — it has
 	 * no idea pages are made of PDF canvases. When a zoom settles, or drops back
@@ -134,21 +149,35 @@
 	 * stay crisp.
 	 */
 	class ZoomController {
+		/**
+		 * @param {object} options
+		 * @param {HTMLElement} options.stage - Outer container; the wheel gesture listens here.
+		 * @param {HTMLElement} options.viewerEl - Inner pages element; the transform is applied here.
+		 * @param {() => boolean} options.isReady - Whether the book is ready for gestures.
+		 * @param {() => void} options.onNext - Turn to the next page.
+		 * @param {() => void} options.onPrev - Turn to the previous page.
+		 * @param {( scale: number ) => void} options.onSettled - A zoom gesture has stopped at this scale.
+		 * @param {() => void} options.onReset - Zoom is back at fit; canvases can be reclaimed.
+		 */
 		constructor( { stage, viewerEl, isReady, onNext, onPrev, onSettled, onReset } ) {
-			this.stage = stage;
-			this.viewerEl = viewerEl;
-			this.isReady = isReady;
+			this.stage = stage; // the outer container
+			this.viewerEl = viewerEl; // inner pages element
+			this.isReady = isReady; // called to check if the book is ready for gestures (e.g. StPageFlip has loaded)
 			this.onNext = onNext;
 			this.onPrev = onPrev;
-			this.onSettled = onSettled;
+			this.onSettled = onSettled; // called after a zoom gesture settles, so the orchestrator can re-render at the right resolution
 			this.onReset = onReset;
 
+			// zoom/pan state: scale and translation applied to the pages element.
 			this.scale = 1;
+			// pan offset 
 			this.tx = 0;
 			this.ty = 0;
-			this.dragging = false;
+			this.dragging = false; // true while the user is dragging to pan
+			// pointer position when the drag begins
 			this.startX = 0;
 			this.startY = 0;
+			// the pan offset when the drag begins
 			this.baseTx = 0;
 			this.baseTy = 0;
 
@@ -158,6 +187,11 @@
 			this._bindGestures();
 		}
 
+		 /**
+		 * Listens for pointer gestures that drive zoom and pan. Wheel/pinch zooms
+		 *
+		 * @returns {void}
+		 */
 		_bindGestures() {
 			this.stage.addEventListener( 'wheel', ( e ) => this._onWheel( e ), { passive: false } );
 
@@ -165,11 +199,12 @@
 			// keeps StPageFlip (mouse-driven) from treating the drag as a page turn;
 			// at scale 1 we don't interfere, so normal flipping/dragging still works.
 			this.viewerEl.addEventListener( 'mousedown', ( e ) => {
-				if ( this.scale <= 1 ) {
+				if ( this.scale <= 1 ) { // do nothing if not zoomed in
 					return;
 				}
 				e.preventDefault();
-				e.stopPropagation();
+				e.stopPropagation(); // prevent StPageFlip from treating the drag as a page turn
+				// capture the pointer position and pan offset at the start of the drag
 				this.dragging = true;
 				this.startX = e.clientX;
 				this.startY = e.clientY;
@@ -185,11 +220,12 @@
 				if ( ! this.dragging ) {
 					return;
 				}
+				// compute the new pan offset from the pointer's delta since the drag began
 				this.tx = this.baseTx + ( e.clientX - this.startX );
 				this.ty = this.baseTy + ( e.clientY - this.startY );
 				this.apply();
 			};
-			this._onWindowMouseUp = () => {
+			this._onWindowMouseUp = () => { // release the drag
 				if ( this.dragging ) {
 					this.dragging = false;
 					this.viewerEl.classList.remove( 'arfb-flipbook__pages--grabbing' );
@@ -207,6 +243,14 @@
 			} );
 		}
 
+		/**
+		 * Handles a wheel event over the book. 
+		 * Ctrl/Cmd+wheel or a trackpad pinch -- zooms in/out 
+		 * Plain zoom -- flips pages (down/right = next, up/left = prev)
+		 * 
+		 * @param {WheelEvent} e
+		 * @returns {void}
+		 */
 		_onWheel( e ) {
 			if ( ! this.isReady() ) {
 				return;
@@ -215,7 +259,7 @@
 			// --- Zoom gesture: Ctrl/Cmd + wheel, or trackpad pinch ---
 			if ( e.ctrlKey || e.metaKey ) {
 				e.preventDefault();
-				// Anchored at the pointer.
+				// Zoom is anchored at the pointer. sensitivity constant: 0.0015 
 				this.zoomBy( Math.exp( -e.deltaY * 0.0015 ), e.clientX, e.clientY );
 				return;
 			}
@@ -228,15 +272,16 @@
 			}
 			e.preventDefault();
 
+			// Throttle page flips
 			const now = Date.now();
 			if ( now - this._lastFlip < WHEEL_FLIP_COOLDOWN ) {
 				return;
 			}
 			this._lastFlip = now;
 
-			if ( delta > 0 ) {
+			if ( delta > 0 ) { // scroll down/right = next page
 				this.onNext();
-			} else {
+			} else { // scroll up/left = previous page
 				this.onPrev();
 			}
 		}
@@ -245,6 +290,11 @@
 		 * Zoom by a multiplicative factor, keeping a screen point fixed. Defaults to
 		 * the centre of the book (used by the +/- toolbar buttons); the wheel/pinch
 		 * gesture passes the pointer position. Shared so both behave identically.
+		 *
+		 * @param {number} factor - Multiplier applied to the current scale; >1 zooms in.
+		 * @param {number} [clientX] - Viewport x to anchor on. Omit for the book's centre.
+		 * @param {number} [clientY] - Viewport y to anchor on. Omit for the book's centre.
+		 * @returns {void}
 		 */
 		zoomBy( factor, clientX, clientY ) {
 			const rect = this.viewerEl.getBoundingClientRect();
@@ -270,6 +320,11 @@
 			this._scheduleRerender();
 		}
 
+		/**
+		 * Apply the current scale and translation to the pages element.
+		 *
+		 * @returns {void}
+		 */
 		apply() {
 			const zoomed = this.scale > 1;
 			this.viewerEl.style.transformOrigin = '0 0';
@@ -279,7 +334,11 @@
 			this.viewerEl.classList.toggle( 'arfb-flipbook__pages--zoomed', zoomed );
 		}
 
-		/** Transform back to identity. Does not touch canvases — see _resetZoom(). */
+		/**
+		 * Transform back to identity. Does not touch canvases — see _resetZoom().
+		 *
+		 * @returns {void}
+		 */
 		reset() {
 			this.scale = 1;
 			this.tx = 0;
@@ -288,6 +347,11 @@
 			this.cancelPending();
 		}
 
+		/**
+		 * Cancel a re-render that was scheduled but hasn't fired yet.
+		 *
+		 * @returns {void}
+		 */
 		cancelPending() {
 			if ( this._timer ) {
 				clearTimeout( this._timer );
@@ -299,6 +363,8 @@
 		 * After a zoom gesture settles, tell the orchestrator to re-render at a
 		 * resolution matching the magnified size so text is as sharp as the source
 		 * PDF. Debounced so it fires once the wheel/pinch stops, not every tick.
+		 *
+		 * @returns {void}
 		 */
 		_scheduleRerender() {
 			this.cancelPending();
@@ -321,6 +387,13 @@
 	 * document up front, which matters for a long annual report.
 	 */
 	class PageRenderer {
+		/**
+		 * @param {object} options
+		 * @param {object} options.pdfDoc - The PDF.js document proxy.
+		 * @param {HTMLElement[]} options.pageEls - Page shells, in document order.
+		 * @param {( page: object, viewport: object, pageEl: HTMLElement, overlayTransform: string ) => void} options.onPagePainted
+		 *   Called once a page's canvas is in the DOM, so overlays can be added on top.
+		 */
 		constructor( { pdfDoc, pageEls, onPagePainted } ) {
 			this.pdfDoc = pdfDoc;
 			this.pageEls = pageEls;
@@ -331,6 +404,17 @@
 			this.zoomedPages = {}; // pages currently rendered at zoom resolution
 		}
 
+		/**
+		 * Renders a range of pages. Indexes outside the document are clamped, so
+		 * callers can ask for a window around a page without checking the edges.
+		 *
+		 * @param {number} startIndex - The index of the first page to render (0-based).
+		 * @param {number} endIndex - The index of the last page to render (0-based).
+		 * @param {object} [options] - Options for rendering, including zoom level and force flag.
+		 * @param {number} [options.zoom=1] - Current magnification.
+		 * @param {boolean} [options.force=false] - Re-render even if already painted.
+		 * @returns {void}
+		 */
 		renderRange( startIndex, endIndex, options ) {
 			const start = Math.max( 0, startIndex );
 			const end = Math.min( this.pageEls.length - 1, endIndex );
@@ -339,10 +423,31 @@
 			}
 		}
 
+		/**
+		 * Renders pages around the current page, PAGES_AROUND_CURRENT either side,
+		 * so the next flip lands on a page that is already painted.
+		 *
+		 * @param {number} index - The index of the current page (0-based).
+		 * @param {object} [options] - Options for rendering, including zoom level and force flag.
+		 * @param {number} [options.zoom=1] - Current magnification.
+		 * @param {boolean} [options.force=false] - Re-render even if already painted.
+		 * @returns {void}
+		 */
 		renderAround( index, options ) {
 			this.renderRange( index - PAGES_AROUND_CURRENT, index + PAGES_AROUND_CURRENT, options );
 		}
 
+		/**
+		 * Renders a single page at the requested zoom level, if it hasn't already
+		 * been rendered at that resolution. If the page is already rendered at a	
+		 * resolution equal to or higher than the requested zoom, it will not be re-rendered unless the force option is set to true.
+		 * 
+		 * @param {number} pageNumber - The page number to render (1-based).
+		 * @param {object} [options] - Options for rendering, including zoom level and force flag.
+		 * @param {number} [options.zoom=1] - Current magnification; raises the resolution cap above 1.
+		 * @param {boolean} [options.force=false] - Consider a repaint even if the page is already painted.
+		 * @returns {void} Painting itself is async and not awaited — see _paint().
+		 */
 		render( pageNumber, { zoom = 1, force = false } = {} ) {
 			const pageEl = this.pageEls[ pageNumber - 1 ];
 			if ( ! pageEl ) {
@@ -384,6 +489,17 @@
 			this._paint( pageNumber, pageEl, targetDeviceWidth, displayWidth );
 		}
 
+		/**
+		 * Draw one page into a fresh canvas and swap it in, then build the overlays
+		 * that have to line up with it. A failed paint is logged and un-marked so a
+		 * later pass can retry.
+		 *
+		 * @param {number} pageNumber - The page number to paint (1-based).
+		 * @param {HTMLElement} pageEl - The page shell to paint into.
+		 * @param {number} targetDeviceWidth - Canvas width to render at, in device pixels.
+		 * @param {number} displayWidth - Fallback CSS width if the shell reports none.
+		 * @returns {Promise<void>}
+		 */
 		async _paint( pageNumber, pageEl, targetDeviceWidth, displayWidth ) {
 			try {
 				const page = await this.pdfDoc.getPage( pageNumber );
@@ -451,6 +567,12 @@
 		 * text-layer entry point has moved across pdf.js releases (TextLayerBuilder
 		 * vs renderTextLayer vs pdfjsLib.TextLayer) -- verify this against the
 		 * exact version in assets/vendor/pdfjs before shipping.
+		 *
+		 * @param {object} page - The PDF.js page proxy.
+		 * @param {object} viewport - The viewport the canvas was rendered at.
+		 * @param {HTMLElement} pageEl - The page shell to append the layer to.
+		 * @param {string} overlayTransform - CSS transform bringing the layer down to display size.
+		 * @returns {Promise<void>} Resolves even when the text layer is unavailable.
 		 */
 		async _renderTextLayer( page, viewport, pageEl, overlayTransform ) {
 			if ( typeof window.pdfjsLib.renderTextLayer !== 'function' ) {
@@ -485,6 +607,8 @@
 		 * lazy render redraw the visible pages at standard resolution. Returns
 		 * whether anything was actually dropped, so the caller knows if a
 		 * re-render is needed.
+		 *
+		 * @returns {boolean} True if any zoom-resolution canvas was dropped.
 		 */
 		discardZoomedPages() {
 			const pages = Object.keys( this.zoomedPages );
@@ -512,6 +636,11 @@
 	 * where to go.
 	 */
 	class LinkNavigator {
+		/**
+		 * @param {object} options
+		 * @param {object} options.pdfDoc - The PDF.js document proxy.
+		 * @param {object} options.nav - Navigation abstraction: goTo, next, prev, first, last.
+		 */
 		constructor( { pdfDoc, nav } ) {
 			this.pdfDoc = pdfDoc;
 			this.nav = nav;
@@ -524,6 +653,9 @@
 		 * A destination is either an explicit array whose first entry is a reference
 		 * to a page object, or the name of a destination that has to be looked up in
 		 * the document first. Neither one is a page number, hence getPageIndex().
+		 *
+		 * @param {string|Array} dest - A named destination, or an explicit destination array.
+		 * @returns {Promise<void>} Resolves without navigating if the destination is unusable.
 		 */
 		async goToDest( dest ) {
 			try {
@@ -549,6 +681,9 @@
 		 * bundle (pdf_viewer.js), which we don't ship -- so this is just the part of
 		 * that interface the annotation layer actually calls, pointed at the
 		 * flipbook's page-turn animation instead of at scroll position.
+		 *
+		 * @returns {object} The subset of the PDF.js link service interface that the
+		 *   annotation layer actually calls.
 		 */
 		linkService() {
 			const { nav } = this;
@@ -601,6 +736,12 @@
 		 * is built at the canvas's scale and then brought down to display size by the
 		 * same transform as the text layer — which is what keeps the click targets
 		 * over the words they belong to, at any zoom level.
+		 *
+		 * @param {object} page - The PDF.js page proxy.
+		 * @param {object} viewport - The viewport the canvas was rendered at.
+		 * @param {HTMLElement} pageEl - The page shell to append the layer to.
+		 * @param {string} overlayTransform - CSS transform bringing the layer down to display size.
+		 * @returns {Promise<void>} Resolves without adding a layer if the page has no internal links.
 		 */
 		async renderAnnotations( page, viewport, pageEl, overlayTransform ) {
 			// Missing from older PDF.js builds, same caveat as the text layer.
@@ -665,6 +806,14 @@
 	 * of its own — the page number it displays is passed in, never derived.
 	 */
 	class ViewerChrome {
+		/**
+		 * @param {object} options
+		 * @param {HTMLElement} options.container - The viewer's outermost element.
+		 * @param {string} options.title - Accessible name for the viewer region.
+		 * @param {string} options.pdfUrl - Target for the download button and the error fallback.
+		 * @param {object} options.handlers - Intent callbacks: isReady, onNext, onPrev, onFirst,
+		 *   onLast, onZoomIn, onZoomOut, onJump, onFullscreen.
+		 */
 		constructor( { container, title, pdfUrl, handlers } ) {
 			this.container = container;
 			this.title = title;
@@ -676,7 +825,12 @@
 			this.pageInput = null;
 		}
 
-		/** The part that exists before the PDF has loaded. */
+		/**
+		 * The part that exists before the PDF has loaded: loading message, live
+		 * region, and the keyboard bindings for turning pages.
+		 *
+		 * @returns {void}
+		 */
 		buildInitial() {
 			this.container.innerHTML = '';
 			this.container.classList.add( 'arfb-flipbook--loading' );
@@ -719,12 +873,24 @@
 			} );
 		}
 
-		/** The controls, which need the page count and the stage to sit on. */
+		/**
+		 * The controls, which need the page count and the stage to sit on.
+		 *
+		 * @param {object} options
+		 * @param {HTMLElement} options.stage - Element the side arrows are overlaid on.
+		 * @param {number} options.pageCount - Total pages, for the "/ N" label and input max.
+		 * @returns {void}
+		 */
 		buildControls( { stage, pageCount } ) {
 			this._buildNavArrows( stage );
 			this._buildToolbar( pageCount );
 		}
 
+		/**
+		 * Remove the loading message once the book is ready.
+		 *
+		 * @returns {void}
+		 */
 		removeStatus() {
 			if ( this.statusEl ) {
 				this.statusEl.remove();
@@ -734,8 +900,18 @@
 		/**
 		 * Previous / next page-turn controls, as arrow buttons overlaid on the
 		 * left and right edges of the book.
+		 *
+		 * @param {HTMLElement} stage - Element to overlay the arrows on.
+		 * @returns {void}
 		 */
 		_buildNavArrows( stage ) {
+			/**
+			 * @param {string} className - Modifier class for side and styling.
+			 * @param {string} label - Accessible name and tooltip.
+			 * @param {string} path - Icon path data.
+			 * @param {() => void} onClick - Click handler.
+			 * @returns {HTMLButtonElement} The button, already appended to the stage.
+			 */
 			const arrow = ( className, label, path, onClick ) => {
 				const b = document.createElement( 'button' );
 				b.type = 'button';
@@ -752,12 +928,24 @@
 			arrow( 'arfb-nav--next', t.next || 'Next page', 'M9 4l8 8-8 8', this.handlers.onNext );
 		}
 
-		// Toolbar
+		/**
+		 * The floating toolbar: zoom buttons, the page box, fullscreen, download.
+		 *
+		 * @param {number} pageCount - Total pages, for the "/ N" label and the input's max.
+		 * @returns {void}
+		 */
 		_buildToolbar( pageCount ) {
 			const h = this.handlers;
 			const toolbar = document.createElement( 'div' );
 			toolbar.className = 'arfb-flipbook__toolbar';
 
+			/**
+			 * @param {string} className - Modifier class for styling.
+			 * @param {string} label - Accessible name.
+			 * @param {string} path - Icon path data.
+			 * @param {() => void} onClick - Click handler.
+			 * @returns {HTMLButtonElement} The button, already appended to the toolbar.
+			 */
 			const iconButton = ( className, label, path, onClick ) => {
 				const b = document.createElement( 'button' );
 				b.type = 'button';
@@ -826,6 +1014,9 @@
 
 		/**
 		 * Error displaying the pdf. Show a message and a download link instead of the book.
+		 *
+		 * @param {Error} [err] - Logged to the console when present; the reader only sees the message.
+		 * @returns {void}
 		 */
 		showError( err ) {
 			if ( err ) {
@@ -835,13 +1026,42 @@
 			this.container.classList.remove( 'arfb-flipbook--loading' );
 			this.container.classList.add( 'arfb-flipbook--error' );
 
-			// fallback message and a link to download the pdf
-			this.container.innerHTML =
-				`<p class="arfb-flipbook__status">${ t.loadError || 'Sorry, the report could not be loaded.' }</p>` +
-				`<p><a href="${ this.pdfUrl }">${ t.download || 'Download PDF' }</a></p>` +
-				'<p class="arfb-flipbook__note">Note: To view an accessible version of the report, download Ontario Superior Court of Justice: Progressing In The Public Interest 2024 – 2025 Report to view the PDF.</p>';
+			// fallback message, a link to download the pdf, and a note pointing at
+			// that link as the accessible way to read the report.
+			this.container.innerHTML = '';
+
+			const message = document.createElement( 'p' );
+			message.className = 'arfb-flipbook__status';
+			message.textContent = t.loadError || 'Sorry, the report could not be loaded.';
+			this.container.appendChild( message );
+
+			// Built as elements rather than an innerHTML string: pdfUrl comes off a
+			// data attribute, and interpolating it into markup would make the error
+			// screen only as safe as whoever set that attribute.
+			const link = document.createElement( 'a' );
+			link.href = this.pdfUrl;
+			link.textContent = t.download || 'Download PDF';
+			const linkWrap = document.createElement( 'p' );
+			linkWrap.appendChild( link );
+			this.container.appendChild( linkWrap );
+
+			const note = document.createElement( 'p' );
+			note.className = 'arfb-flipbook__note';
+			note.textContent = t.accessibleNote ||
+				'To view an accessible version of the report, download the PDF using the link above.';
+			this.container.appendChild( note );
 		}
 
+		/**
+		 * Put the current page number in the toolbar box, unless the reader is
+		 * typing in it.
+		 *
+		 * @param {object} options
+		 * @param {number} options.index - Current page index (0-based).
+		 * @param {?number} options.requestedPage - Page number the reader typed, if any (1-based).
+		 * @param {number} options.pageCount - Total pages, used to clamp a requested page.
+		 * @returns {void}
+		 */
 		updateIndicator( { index, requestedPage, pageCount } ) {
 			// Reflect the current page in the input, unless the user is typing in it.
 			if ( ! this.pageInput || document.activeElement === this.pageInput ) {
@@ -856,6 +1076,15 @@
 			this.pageInput.value = String( index + 1 );
 		}
 
+		/**
+		 * Write the reader's position into the live region for screen readers.
+		 *
+		 * @param {object} options
+		 * @param {number} options.index - Current page index (0-based).
+		 * @param {number} options.total - Total pages.
+		 * @param {boolean} options.isSpread - Whether two pages are visible side by side.
+		 * @returns {void}
+		 */
 		announce( { index, total, isSpread } ) {
 			if ( ! this.liveRegion ) {
 				return;
@@ -886,6 +1115,10 @@
 	 * knows about all of them.
 	 */
 	class FlipbookInstance {
+		/**
+		 * @param {HTMLElement} container - The block's empty <div>, carrying data-pdf-url
+		 *   and data-title. Loading starts immediately.
+		 */
 		constructor( container ) {
 			this.container = container;
 			this.pdfUrl = container.getAttribute( 'data-pdf-url' );
@@ -926,6 +1159,11 @@
 			this._load();
 		}
 
+		/**
+		 * Open the PDF and build the book, showing the error screen if any step fails.
+		 *
+		 * @returns {Promise<void>}
+		 */
 		async _load() {
 			// Error if PDF URL or PDF.js is missing
 			if ( ! this.pdfUrl || ! window.pdfjsLib ) {
@@ -961,6 +1199,10 @@
 		 * sized to the first page's aspect ratio. Actual canvas + text-layer content
 		 * is filled in lazily by the renderer as the reader approaches each page.
 		 * That keeps the initial load fast for long documents.
+		 *
+		 * @param {object} firstPage - PDF.js page 1, measured for the aspect ratio every
+		 *   shell is given.
+		 * @returns {void}
 		 */
 		_buildPageShells( firstPage ) {
 			const viewport = firstPage.getViewport( { scale: 1 } );
@@ -1006,6 +1248,8 @@
 		/**
 		 * The navigation abstraction handed to LinkNavigator: "where to go",
 		 * with no mention of how the turn is animated.
+		 *
+		 * @returns {object} An object of goTo/next/prev/first/last methods.
 		 */
 		_navigation() {
 			return {
@@ -1024,6 +1268,13 @@
 			};
 		}
 
+		/**
+		 * Turn the page shells into a book: construct StPageFlip, subscribe to its
+		 * events, and create the ZoomController now that the stage exists.
+		 *
+		 * @returns {boolean} True on success; false if StPageFlip is missing, in which
+		 *   case the error screen has already been shown.
+		 */
 		_initPageFlip() {
 			const PageFlip = window.St && window.St.PageFlip;
 
@@ -1097,6 +1348,11 @@
 		/**
 		 * Drop back to the full spread and, if any zoom-resolution canvases were
 		 * being held, reclaim them and redraw at standard resolution.
+		 *
+		 * @param {number} [index] - Page index to redraw around. Defaults to wherever
+		 *   StPageFlip currently is; pass it explicitly when resetting as part of a
+		 *   turn, since StPageFlip hasn't moved yet at that point.
+		 * @returns {void}
 		 */
 		_resetZoom( index ) {
 			if ( ! this.zoom ) {
@@ -1112,7 +1368,12 @@
 			this.renderer.renderAround( idx );
 		}
 
-		/** Re-render the visible spread sharp enough for the current magnification. */
+		/**
+		 * Re-render the visible spread sharp enough for the current magnification.
+		 *
+		 * @param {number} scale - The settled zoom scale.
+		 * @returns {void}
+		 */
 		_rerenderAtZoom( scale ) {
 			if ( ! this.pageFlip || ! this.renderer ) {
 				return;
@@ -1121,6 +1382,12 @@
 			this.renderer.renderRange( idx - 1, idx + 2, { zoom: scale, force: true } );
 		}
 
+		/**
+		 * Where the book currently is, tolerating StPageFlip versions that don't
+		 * expose the getter.
+		 *
+		 * @returns {number} The current page index (0-based), or 0 if unknown.
+		 */
 		_currentPageIndex() {
 			return this.pageFlip && this.pageFlip.getCurrentPageIndex
 				? this.pageFlip.getCurrentPageIndex()
@@ -1131,6 +1398,9 @@
 		 * Go to whatever page number is in the box. Numbers outside the document
 		 * get pulled back into range, so typing 999 takes you to the last page
 		 * rather than doing nothing.
+		 *
+		 * @param {string} rawValue - The raw contents of the page input.
+		 * @returns {void}
 		 */
 		_jumpTo( rawValue ) {
 			const n = parseInt( rawValue, 10 );
@@ -1162,6 +1432,11 @@
 			}
 		}
 
+		/**
+		 * Enter fullscreen on the viewer, or leave it if already there.
+		 *
+		 * @returns {void}
+		 */
 		_toggleFullscreen() {
 			if ( document.fullscreenElement ) {
 				document.exitFullscreen();
@@ -1175,6 +1450,8 @@
 		 * screen width StPageFlip would derive a spread height taller than the
 		 * screen, so we cap the viewer width to whatever keeps the height within
 		 * the space left below the toolbar, then let StPageFlip re-measure.
+		 *
+		 * @returns {void}
 		 */
 		_onFullscreenChange() {
 			const isFullscreen = document.fullscreenElement === this.container;
@@ -1205,6 +1482,13 @@
 			} );
 		}
 
+		/**
+		 * Everything that has to happen when the book lands on a new page. Also run
+		 * once at startup, for page 0.
+		 *
+		 * @param {number} index - The page index now on screen (0-based).
+		 * @returns {void}
+		 */
 		_onPageChange( index ) {
 			this.currentIndex = index;
 			this._resetZoom( index );       // a page you just turned to always starts unzoomed
@@ -1217,6 +1501,12 @@
 			this.viewerEl.classList.toggle( 'arfb-flipbook__pages--single', isPageSingle );
 		}
 
+		/**
+		 * Hand the chrome what it needs to show the right number in the page box.
+		 *
+		 * @param {number} index - The current page index (0-based).
+		 * @returns {void}
+		 */
 		_updateIndicator( index ) {
 			this.chrome.updateIndicator( {
 				index,
@@ -1225,6 +1515,13 @@
 			} );
 		}
 
+		/**
+		 * Work out whether the reader is looking at one page or a spread, then let
+		 * the chrome announce it.
+		 *
+		 * @param {number} index - The current page index (0-based).
+		 * @returns {void}
+		 */
 		_announce( index ) {
 			const total = this.pageEls.length;
 
@@ -1248,6 +1545,13 @@
 	const ArfbFlipbook = {
 		instances: {},
 
+		/**
+		 * Create a viewer for one container, unless it already has one.
+		 *
+		 * @param {HTMLElement} container - The block's container element.
+		 * @returns {FlipbookInstance|undefined} The new instance, or undefined if the
+		 *   container was missing or already initialized.
+		 */
 		init( container ) {
 			if ( ! container || container.arfbInitialized ) {
 				return;
@@ -1258,6 +1562,14 @@
 			return instance;
 		},
 
+		/**
+		 * Point an existing container at a different PDF and rebuild it. Used by the
+		 * admin uploader to refresh the preview after an upload.
+		 *
+		 * @param {HTMLElement} container - The container to rebuild.
+		 * @param {string} pdfUrl - URL of the PDF to show instead.
+		 * @returns {void}
+		 */
 		reload( container, pdfUrl ) {
 			container.arfbInitialized = false;
 			container.setAttribute( 'data-pdf-url', pdfUrl );
@@ -1265,6 +1577,11 @@
 			this.init( container );
 		},
 
+		/**
+		 * Initialize every flipbook block on the page that has a PDF to show.
+		 *
+		 * @returns {void}
+		 */
 		initAll() {
 			const els = document.querySelectorAll( '.arfb-flipbook:not([data-pdf-url=""])' );
 			els.forEach( ( el ) => {
