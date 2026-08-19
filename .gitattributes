@@ -22,7 +22,6 @@
 /composer.lock    export-ignore
 /phpunit.xml.dist export-ignore
 /preview.html     export-ignore
-/admin-preview.html export-ignore
 /embed-demo.html  export-ignore
 /architecture.html export-ignore
 /TESTING.md       export-ignore

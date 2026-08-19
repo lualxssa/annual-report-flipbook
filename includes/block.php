@@ -30,6 +30,7 @@ function arfb_enqueue_viewer_assets() {
 		true
 	);
 
+	// The array here lists what this script depends on 
 	wp_enqueue_script(
 		'arfb-flipbook',
 		ARFB_PLUGIN_URL . 'assets/js/flipbook.js',
@@ -116,7 +117,7 @@ function arfb_resolve_width( $size, $custom = '' ) {
 }
 
 /**
- * Shared render used by both the shortcode and the dynamic block.
+ * Builds the HTML for shared flipbbook viewer, used by both the shortcode and the block.
  *
  * @param array $atts {
  *     @type int    $id    Attachment ID of the PDF. Falls back to the saved default.
@@ -137,6 +138,7 @@ function arfb_render_flipbook( $atts = array() ) {
 
 	$attachment_id = absint( $atts['id'] );
 
+	// Error for editor: No PDF chosen, or the chosen file isn't a PDF
 	if ( ! $attachment_id || 'application/pdf' !== get_post_mime_type( $attachment_id ) ) {
 		if ( current_user_can( 'edit_posts' ) ) {
 			return '<p class="arfb-notice">' . esc_html__( 'Annual Report Flipbook: no PDF has been selected yet.', 'annual-report-flipbook' ) . '</p>';
@@ -147,6 +149,8 @@ function arfb_render_flipbook( $atts = array() ) {
 	arfb_enqueue_viewer_assets();
 
 	$pdf_url = wp_get_attachment_url( $attachment_id );
+	// Every viewer needs its own id, since one page can hold several flipbooks.
+	// wp_unique_id() adds a counter so two copies of the same PDF still differ.
 	$uid     = 'arfb-' . $attachment_id . '-' . wp_unique_id();
 	$width   = arfb_sanitize_css_width( $atts['width'] );
 	$style   = $width ? ' style="max-width:' . esc_attr( $width ) . ';"' : '';

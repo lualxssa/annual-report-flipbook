@@ -1,7 +1,7 @@
 /**
  * Tiny static file server for the Playwright tests — serves the plugin folder
- * so preview.html / admin-preview.html and the vendored assets load over http://
- * (PDF.js's worker is unreliable over file://). Dev-only; not part of the plugin.
+ * so preview.html and the vendored assets load over http:// (PDF.js's worker
+ * is unreliable over file://). Dev-only; not part of the plugin.
  *
  * Usage: node tests/static-server.js [port]   (default port 8080)
  */

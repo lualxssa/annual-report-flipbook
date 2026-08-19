@@ -24,8 +24,8 @@ composer install            # PHPUnit + WP test framework (for the PHP layer)
 
 ## Layer 1 — Viewer + UI (Playwright)
 
-Drives the real viewer through `preview.html` / `admin-preview.html` — no
-WordPress required. A static server starts automatically.
+Drives the real viewer through `preview.html` — no WordPress required. A
+static server starts automatically.
 
 ```
 npm run test:e2e            # run headless
@@ -35,7 +35,14 @@ npm run test:e2e:ui         # interactive runner
 Covers: the PDF loads and shows pages; Next/Previous change the page; the
 Previous/Next/Fullscreen/Download controls exist with accessible names; the
 download link points at the PDF; a missing PDF shows an error + download
-fallback; and the admin dropzone previews a chosen PDF.
+fallback.
+
+Note: the admin upload screen (`includes/admin-page.php`) has no e2e coverage.
+It was previously tested against a hand-maintained `admin-preview.html` mock,
+but that mock didn't exercise the real WordPress upload flow (REST API,
+media library, saved-default AJAX call) and had to be manually kept in sync
+with the real markup — the PHP tests below are the source of truth for its
+behavior instead.
 
 ## Layer 2 — Plugin logic (PHPUnit + wp-env)
 
@@ -67,6 +74,10 @@ in `preview.html`:
       browsers, so this is manual.)
 - [ ] **Responsive/mobile** — the page-flip animation and the side arrows look
       right at a few widths (wide desktop, ~tablet, narrow/phone).
+- [ ] **Admin upload screen** — in a real WordPress install, drag-and-drop
+      (and click-to-browse) a PDF onto the dropzone, confirm the live preview
+      renders, "Save as the default report" persists, and the shortcode shown
+      matches the saved attachment.
 
 ## Notes
 

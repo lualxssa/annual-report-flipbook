@@ -41,8 +41,8 @@ Included: `annual-report-flipbook.php`, `readme.txt`, `includes/`, and `assets/`
 
 Excluded (via `export-ignore` in `.gitattributes`): all dev/test tooling —
 `tests/`, `package.json`, `playwright.config.js`, `composer.json`,
-`phpunit.xml.dist`, `.wp-env.json`, the standalone `preview.html` /
-`admin-preview.html`, and the dev docs (`SETUP.md`, `TESTING.md`, `BUILD.md`).
+`phpunit.xml.dist`, `.wp-env.json`, the standalone `preview.html`, and the
+dev docs (`SETUP.md`, `TESTING.md`, `BUILD.md`).
 
 Verify the contents after building:
 
